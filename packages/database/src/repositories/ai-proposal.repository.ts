@@ -152,11 +152,6 @@ export class PostgresLessonAiProposalRepository
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-
-      // Serialize concurrent replays of the same request key across horizontally
-      // scaled API instances. Without this lock, two requests could both miss the
-      // initial lookup and race on the unique constraint instead of behaving as
-      // clean idempotent replays.
       await client.query(
         `SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))`,
         [context.workspaceId, input.idempotencyKey]
@@ -303,7 +298,7 @@ export class PostgresLessonAiProposalRepository
   ): Promise<LessonAiProposal> {
     const result = await this.pool.query<ProposalRow>(
       `UPDATE lesson_ai_proposals
-       SET status = 'RUNNING', updated_at = $3, error_json = NULL
+       SET status = 'RUNNING', updated_at = $3, error_json = NULL, completed_at = NULL
        WHERE workspace_id = $1 AND id = $2 AND status IN ('QUEUED', 'RUNNING')
        RETURNING ${SELECT_COLUMNS}`,
       [context.workspaceId, input.proposalId, new Date(input.now)]
@@ -343,6 +338,30 @@ export class PostgresLessonAiProposalRepository
       ]
     );
     return this.requireTransition(context, input.proposalId, result, 'READY');
+  }
+
+  async markQueuedForRetry(
+    context: RequestContext,
+    input: {
+      proposalId: string;
+      now: string;
+      error: Readonly<Record<string, unknown>>;
+    }
+  ): Promise<LessonAiProposal> {
+    const result = await this.pool.query<ProposalRow>(
+      `UPDATE lesson_ai_proposals
+       SET status = 'QUEUED', error_json = $3::jsonb,
+           completed_at = NULL, updated_at = $4
+       WHERE workspace_id = $1 AND id = $2 AND status IN ('QUEUED', 'RUNNING')
+       RETURNING ${SELECT_COLUMNS}`,
+      [
+        context.workspaceId,
+        input.proposalId,
+        JSON.stringify(input.error),
+        new Date(input.now)
+      ]
+    );
+    return this.requireTransition(context, input.proposalId, result, 'QUEUED');
   }
 
   async markStale(
