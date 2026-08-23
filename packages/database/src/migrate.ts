@@ -16,6 +16,13 @@ function sha256(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
+function stripTransactionWrapper(sql: string): string {
+  return sql
+    .replace(/^\s*BEGIN\s*;\s*/i, '')
+    .replace(/\s*COMMIT\s*;\s*$/i, '')
+    .trim();
+}
+
 async function ensureMigrationsTable(client: PoolClient): Promise<void> {
   await client.query(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -71,7 +78,7 @@ export async function migrateDatabase(input?: {
 
       await client.query('BEGIN');
       try {
-        await client.query(sql);
+        await client.query(stripTransactionWrapper(sql));
         await client.query(
           'INSERT INTO schema_migrations(name, checksum) VALUES ($1, $2)',
           [name, checksum]
