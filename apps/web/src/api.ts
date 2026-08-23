@@ -1,4 +1,5 @@
 import type {
+  AiProposalAction,
   ApiData,
   ApiErrorPayload,
   CoreDecisionKey,
@@ -6,6 +7,7 @@ import type {
   CourseSummary,
   GovernanceResponse,
   Lesson,
+  LessonAiProposal,
   LessonInvalidation,
   LessonSummary,
   LoginResponse,
@@ -135,6 +137,48 @@ export class TehkartaApiClient {
   async listInvalidations(lessonId: string): Promise<LessonInvalidation[]> {
     const response = await this.request<ApiData<LessonInvalidation[]>>(
       `/api/v1/lessons/${encodeURIComponent(lessonId)}/invalidations`
+    );
+    return response.data;
+  }
+
+  async listAiProposals(
+    lessonId: string,
+    semanticKey?: CoreDecisionKey
+  ): Promise<LessonAiProposal[]> {
+    const query = semanticKey ? `?semanticKey=${encodeURIComponent(semanticKey)}` : '';
+    const response = await this.request<ApiData<LessonAiProposal[]>>(
+      `/api/v1/lessons/${encodeURIComponent(lessonId)}/ai-proposals${query}`
+    );
+    return response.data;
+  }
+
+  async requestAiProposal(input: {
+    lessonId: string;
+    semanticKey: CoreDecisionKey;
+    action: AiProposalAction;
+    expectedLessonVersion: number;
+    requestKey: string;
+    candidateCount?: number;
+    teacherInstruction?: string;
+  }): Promise<LessonAiProposal> {
+    const response = await this.request<ApiData<LessonAiProposal>>(
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/ai-proposals`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          semanticKey: input.semanticKey,
+          action: input.action,
+          expectedLessonVersion: input.expectedLessonVersion,
+          requestKey: input.requestKey,
+          ...(input.candidateCount !== undefined
+            ? { candidateCount: input.candidateCount }
+            : {}),
+          ...(input.teacherInstruction !== undefined
+            ? { teacherInstruction: input.teacherInstruction }
+            : {})
+        })
+      },
+      { csrf: true }
     );
     return response.data;
   }
