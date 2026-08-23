@@ -1,9 +1,17 @@
 import { createHmac } from 'node:crypto';
 
-export function hashClientIp(ip: string, key: string): string {
+function keyedHash(namespace: string, value: string, key: string): string {
   return createHmac('sha256', key)
-    .update('tehkarta:client-ip:v1')
+    .update(namespace)
     .update('\0')
-    .update(ip)
+    .update(value)
     .digest('hex');
+}
+
+export function hashClientIp(ip: string, key: string): string {
+  return keyedHash('tehkarta:client-ip:v1', ip, key);
+}
+
+export function hashLoginPrincipal(normalizedEmail: string, key: string): string {
+  return keyedHash('tehkarta:login-principal:v1', normalizedEmail, key);
 }
