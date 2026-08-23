@@ -11,7 +11,7 @@ interface GovernedFieldCardProps {
   field: GovernedField<string> | undefined;
   busy: boolean;
   aiBusy: boolean;
-  latestProposal?: LessonAiProposal;
+  latestProposal: LessonAiProposal | undefined;
   onSaveDraft(value: string): Promise<void>;
   onApply(value: string): Promise<void>;
   onAiAction(action: AiFieldAction, semanticKey: CoreDecisionKey): Promise<void>;
