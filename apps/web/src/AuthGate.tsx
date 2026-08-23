@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { ApiRequestError, loginWithPassword } from './api.js';
 import { App } from './App.js';
 import { LoginScreen } from './components/LoginScreen.js';
@@ -7,12 +7,18 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const WORKSPACE_STORAGE_KEY = 'tehkarta.workspaceId';
 const CSRF_STORAGE_KEY = 'tehkarta.csrfToken';
 
-function hasWorkspaceBootstrap(): boolean {
-  return Boolean(
-    (window.localStorage.getItem(WORKSPACE_STORAGE_KEY) ??
-      import.meta.env.VITE_DEFAULT_WORKSPACE_ID ??
-      '').trim()
-  );
+function hasSessionBootstrap(): boolean {
+  const workspaceId = (
+    window.localStorage.getItem(WORKSPACE_STORAGE_KEY) ??
+    import.meta.env.VITE_DEFAULT_WORKSPACE_ID ??
+    ''
+  ).trim();
+  const csrfToken = (
+    window.sessionStorage.getItem(CSRF_STORAGE_KEY) ??
+    import.meta.env.VITE_DEV_CSRF_TOKEN ??
+    ''
+  ).trim();
+  return Boolean(workspaceId && csrfToken);
 }
 
 function loginErrorMessage(error: unknown): string {
@@ -25,9 +31,16 @@ function loginErrorMessage(error: unknown): string {
 }
 
 export function AuthGate() {
-  const [connected, setConnected] = useState(hasWorkspaceBootstrap());
+  const [connected, setConnected] = useState(hasSessionBootstrap);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const endSession = useCallback(() => {
+    window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
+    window.sessionStorage.removeItem(CSRF_STORAGE_KEY);
+    setConnected(false);
+    setError(null);
+  }, []);
 
   async function login(email: string, password: string): Promise<void> {
     setBusy(true);
@@ -59,5 +72,5 @@ export function AuthGate() {
     return <LoginScreen busy={busy} error={error} onLogin={login} />;
   }
 
-  return <App />;
+  return <App onSessionEnded={endSession} />;
 }
