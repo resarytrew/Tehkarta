@@ -1,0 +1,27 @@
+{
+  "name": "@tehkarta/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "echo 'Database integration tests run in CI smoke job'",
+    "migrate": "tsx src/migrate.ts",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@tehkarta/application": "workspace:*",
+    "@tehkarta/domain": "workspace:*",
+    "@tehkarta/ports": "workspace:*",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
