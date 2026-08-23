@@ -127,8 +127,75 @@ export interface ApprovedLessonContext {
   approvedContentItems: string[];
 }
 
+export class ApprovedFieldMutationError extends Error {
+  constructor(fieldId: string) {
+    super(`Approved field ${fieldId} cannot be replaced by AI without being reopened by the teacher.`);
+    this.name = 'ApprovedFieldMutationError';
+  }
+}
+
 export function approvedValue<T>(field?: GovernedField<T>): T | undefined {
   return field?.meta.status === 'APPROVED' ? field.value : undefined;
+}
+
+export function editGovernedField<T>(
+  field: GovernedField<T>,
+  nextValue: T,
+  actorUserId: UserId,
+  at: string
+): GovernedField<T> {
+  return {
+    fieldId: field.fieldId,
+    value: nextValue,
+    meta: {
+      revision: field.meta.revision + 1,
+      source: 'TEACHER',
+      status: 'EDITED',
+      updatedAt: at,
+      updatedBy: actorUserId
+    }
+  };
+}
+
+export function approveGovernedField<T>(
+  field: GovernedField<T>,
+  actorUserId: UserId,
+  at: string
+): GovernedField<T> {
+  return {
+    fieldId: field.fieldId,
+    value: field.value,
+    meta: {
+      revision: field.meta.revision + 1,
+      source: field.meta.source,
+      status: 'APPROVED',
+      updatedAt: at,
+      updatedBy: actorUserId,
+      approvedAt: at,
+      approvedBy: actorUserId
+    }
+  };
+}
+
+export function replaceWithAiProposal<T>(
+  field: GovernedField<T>,
+  nextValue: T,
+  at: string
+): GovernedField<T> {
+  if (field.meta.status === 'APPROVED') {
+    throw new ApprovedFieldMutationError(field.fieldId);
+  }
+
+  return {
+    fieldId: field.fieldId,
+    value: nextValue,
+    meta: {
+      revision: field.meta.revision + 1,
+      source: 'AI',
+      status: 'PROPOSED',
+      updatedAt: at
+    }
+  };
 }
 
 export * from './dependencies.js';
