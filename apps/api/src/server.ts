@@ -4,6 +4,7 @@ import {
   databaseConfigFromEnv,
   PostgresCourseRepository,
   PostgresIdentityRepository,
+  PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
   PostgresSessionRepository
 } from '@tehkarta/database';
@@ -43,7 +44,10 @@ const app = await createApiApp(config, {
   sessions,
   courses: new PostgresCourseRepository(pool),
   lessons: new PostgresLessonRepository(pool),
-  authorization: new WorkspaceAuthorizationPolicy()
+  invalidations: new PostgresLessonInvalidationRepository(pool),
+  authorization: new WorkspaceAuthorizationPolicy(),
+  clock,
+  ids
 });
 
 let shuttingDown = false;

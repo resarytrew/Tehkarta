@@ -1,8 +1,13 @@
 import { Pool } from 'pg';
+import {
+  ApproveCoreLessonDecision,
+  EditCoreLessonDecision
+} from '@tehkarta/application';
 import { SessionService, NodeSessionTokenCodec, AuthenticationError } from '@tehkarta/identity';
 import type { Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
 import { migrateDatabase } from './migrate.js';
 import { PostgresIdentityRepository, PostgresSessionRepository } from './repositories/identity.repository.js';
+import { PostgresLessonInvalidationRepository } from './repositories/lesson-invalidation.repository.js';
 import { PostgresLessonRepository } from './repositories/lesson.repository.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -123,6 +128,7 @@ try {
   };
 
   const lessonRepository = new PostgresLessonRepository(pool);
+  const invalidationRepository = new PostgresLessonInvalidationRepository(pool);
   const lesson = await lessonRepository.getById(context, 'lesson_smoke');
   if (!lesson?.problemQuestion || lesson.problemQuestion.meta.status !== 'APPROVED') {
     throw new Error('Lesson repository did not restore the approved governed field.');
@@ -141,6 +147,62 @@ try {
   const clock: Clock = { now: () => new Date(fixedNow) };
   let issuedId = 0;
   const ids: IdGenerator = { generate: (prefix = 'id') => `${prefix}_smoke_${++issuedId}` };
+
+  const governanceDependencies = {
+    lessons: lessonRepository,
+    invalidations: invalidationRepository,
+    clock,
+    ids
+  };
+  const editCoreDecision = new EditCoreLessonDecision(governanceDependencies);
+  const approveCoreDecision = new ApproveCoreLessonDecision(governanceDependencies);
+
+  const edited = await editCoreDecision.execute(context, {
+    lessonId: 'lesson_smoke',
+    semanticKey: 'problemQuestion',
+    value: 'Почему в XIX в. промышленная революция достигла огромных успехов?',
+    expectedLessonVersion: 1,
+    expectedFieldRevision: 1
+  });
+
+  if (
+    edited.lesson.version !== 2 ||
+    edited.lesson.problemQuestion?.value !== 'Почему в XIX в. промышленная революция достигла огромных успехов?' ||
+    edited.lesson.problemQuestion.meta.status !== 'EDITED' ||
+    edited.lesson.problemQuestion.meta.source !== 'TEACHER' ||
+    edited.lesson.problemQuestion.meta.revision !== 2
+  ) {
+    throw new Error('Teacher edit was not persisted as an authoritative EDITED decision.');
+  }
+
+  if (!edited.invalidations.some((item) => item.affectedSemanticKey === 'bigIdea')) {
+    throw new Error('Changing the problem question did not mark dependent lesson artifacts stale.');
+  }
+
+  const approved = await approveCoreDecision.execute(context, {
+    lessonId: 'lesson_smoke',
+    semanticKey: 'problemQuestion',
+    expectedLessonVersion: 2,
+    expectedFieldRevision: 2
+  });
+
+  if (
+    approved.lesson.version !== 3 ||
+    approved.lesson.problemQuestion?.value !== 'Почему в XIX в. промышленная революция достигла огромных успехов?' ||
+    approved.lesson.problemQuestion.meta.status !== 'APPROVED' ||
+    approved.lesson.problemQuestion.meta.revision !== 3
+  ) {
+    throw new Error('Teacher decision was not preserved through the APPLY/APPROVE workflow.');
+  }
+
+  const restoredApproved = await lessonRepository.getById(context, 'lesson_smoke');
+  if (
+    restoredApproved?.problemQuestion?.value !== 'Почему в XIX в. промышленная революция достигла огромных успехов?' ||
+    restoredApproved.problemQuestion.meta.status !== 'APPROVED'
+  ) {
+    throw new Error('Approved teacher problem question did not survive repository reload.');
+  }
+
   const tokenCodec = new NodeSessionTokenCodec();
   const identityRepository = new PostgresIdentityRepository(pool);
   const sessionRepository = new PostgresSessionRepository(pool);
@@ -195,7 +257,7 @@ try {
     throw new Error('Revoked session remained usable.');
   }
 
-  console.info(`[database] persistence + identity smoke test passed at ${now}`);
+  console.info(`[database] persistence + lesson governance + identity smoke test passed at ${now}`);
 } finally {
   await pool.end();
 }
