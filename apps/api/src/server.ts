@@ -6,10 +6,13 @@ import {
   PostgresIdentityRepository,
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
+  PostgresPasswordCredentialRepository,
   PostgresSessionRepository
 } from '@tehkarta/database';
 import {
+  Argon2idPasswordHasher,
   NodeSessionTokenCodec,
+  PasswordLoginService,
   SessionService,
   WorkspaceAuthorizationPolicy
 } from '@tehkarta/identity';
@@ -40,8 +43,21 @@ const sessions = new SessionService({
   ids
 });
 
+const passwordHasher = new Argon2idPasswordHasher();
+// Unknown-account logins still perform a real Argon2id verification to reduce
+// timing differences that could otherwise expose whether an email is registered.
+const dummyPasswordHash = await passwordHasher.hash(`tehkarta-dummy-${randomUUID()}`);
+const passwordLogin = new PasswordLoginService({
+  identities,
+  credentials: new PostgresPasswordCredentialRepository(pool),
+  passwords: passwordHasher,
+  sessions,
+  dummyPasswordHash
+});
+
 const app = await createApiApp(config, {
   sessions,
+  passwordLogin,
   courses: new PostgresCourseRepository(pool),
   lessons: new PostgresLessonRepository(pool),
   invalidations: new PostgresLessonInvalidationRepository(pool),
