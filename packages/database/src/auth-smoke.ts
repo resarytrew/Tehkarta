@@ -33,6 +33,15 @@ let currentNow = fixedNow;
 const clock: Clock = { now: () => new Date(currentNow) };
 let issuedId = 0;
 const ids: IdGenerator = { generate: (prefix = 'id') => `${prefix}_auth_smoke_${++issuedId}` };
+const smokeHmacKey = 'auth-smoke-key-not-used-outside-ephemeral-ci';
+
+function smokeHash(namespace: string, value: string): string {
+  return createHmac('sha256', smokeHmacKey)
+    .update(namespace)
+    .update('\0')
+    .update(value)
+    .digest('hex');
+}
 
 try {
   await pool.query(
@@ -88,10 +97,7 @@ try {
     sessions,
     throttle,
     clock,
-    principalHasher: (normalizedEmail) =>
-      createHmac('sha256', 'auth-smoke-principal-key')
-        .update(normalizedEmail)
-        .digest('hex'),
+    principalHasher: (normalizedEmail) => smokeHash('principal', normalizedEmail),
     dummyPasswordHash: dummyHash
   });
 
@@ -99,7 +105,7 @@ try {
     email: 'Teacher@Smoke.Test',
     password,
     ttlSeconds: 3600,
-    ipHash: 'ip_success'
+    ipHash: smokeHash('ip', 'ip_success')
   });
   if (
     success.user.id !== 'usr_auth_smoke' ||
@@ -114,14 +120,17 @@ try {
   if (!storedSession || storedSession.tokenHash === success.session.sessionToken) {
     throw new Error('Password login persisted a raw session token.');
   }
+  if (storedSession.ipHash === 'ip_success') {
+    throw new Error('Session persisted a raw client IP identifier.');
+  }
 
-  async function expectInvalidCredentials(email: string, candidate: string, ipHash: string) {
+  async function expectInvalidCredentials(email: string, candidate: string, rawIp: string) {
     try {
       await login.login({
         email,
         password: candidate,
         ttlSeconds: 3600,
-        ipHash
+        ipHash: smokeHash('ip', rawIp)
       });
     } catch (error: unknown) {
       if (error instanceof AuthenticationError && error.code === 'INVALID_CREDENTIALS') return;
@@ -142,7 +151,7 @@ try {
       email: 'blocked@smoke.test',
       password: 'wrong-password-again',
       ttlSeconds: 3600,
-      ipHash: 'ip_block_2'
+      ipHash: smokeHash('ip', 'ip_block_2')
     });
   } catch (error: unknown) {
     rateLimited = error instanceof AuthenticationError && error.code === 'RATE_LIMITED';
