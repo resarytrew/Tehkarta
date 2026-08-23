@@ -13,6 +13,7 @@ import {
 } from '@tehkarta/application';
 import {
   AuthenticationError,
+  type PasswordLoginService,
   type SessionService
 } from '@tehkarta/identity';
 import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
@@ -24,9 +25,11 @@ import {
   sessionTokenFromRequest
 } from './auth.js';
 import type { ApiConfig } from './config.js';
+import { hashClientIp } from './security.js';
 
 export interface ApiDependencies {
   sessions: SessionService;
+  passwordLogin: PasswordLoginService;
   courses: CourseRepository;
   lessons: LessonRepository;
   invalidations: LessonInvalidationRepository;
@@ -68,6 +71,10 @@ function positiveInteger(value: unknown, fieldName: string): number {
   return value;
 }
 
+function singleHeader(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 async function requirePermission(
   authorization: AuthorizationPolicy,
   context: RequestContext,
@@ -90,7 +97,8 @@ export async function createApiApp(
   const app = Fastify({
     logger: true,
     bodyLimit: 1_048_576,
-    requestIdHeader: 'x-request-id'
+    requestIdHeader: 'x-request-id',
+    trustProxy: config.trustProxy
   });
 
   const authRuntime = {
@@ -151,6 +159,50 @@ export async function createApiApp(
     architecture: 'course-section-lesson',
     principle: 'AI proposes, teacher decides'
   }));
+
+  app.post<{
+    Body: { email?: unknown; password?: unknown };
+  }>('/api/v1/auth/login', async (request, reply) => {
+    const email = typeof request.body?.email === 'string' ? request.body.email.trim() : '';
+    const password = typeof request.body?.password === 'string' ? request.body.password : '';
+
+    // Keep malformed and unknown credentials indistinguishable to the caller.
+    if (!email || email.length > 254 || !password || password.length > 4096) {
+      throw new AuthenticationError('INVALID_CREDENTIALS');
+    }
+
+    const userAgent = singleHeader(request.headers['user-agent'])?.slice(0, 512);
+    const result = await dependencies.passwordLogin.login({
+      email,
+      password,
+      ttlSeconds: config.sessionTtlSeconds,
+      ...(userAgent ? { userAgent } : {}),
+      ipHash: hashClientIp(request.ip, config.authIpHashKey)
+    });
+
+    reply.setCookie(config.sessionCookieName, result.session.sessionToken, {
+      path: '/',
+      httpOnly: true,
+      secure: config.secureCookies,
+      sameSite: 'lax',
+      maxAge: config.sessionTtlSeconds
+    });
+
+    return {
+      user: {
+        id: result.user.id,
+        email: result.user.email,
+        displayName: result.user.displayName
+      },
+      memberships: result.memberships.map((membership) => ({
+        workspaceId: membership.workspaceId,
+        role: membership.role,
+        permissions: membership.permissions
+      })),
+      csrfToken: result.session.csrfToken,
+      expiresAt: result.session.expiresAt
+    };
+  });
 
   app.get('/api/v1/me', async (request) => {
     const principal = await requireWorkspacePrincipal(request, authRuntime);

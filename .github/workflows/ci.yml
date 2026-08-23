@@ -38,6 +38,15 @@ jobs:
       - run: pnpm test
       - run: pnpm db:smoke
 
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build production API image
+        run: docker build --file apps/api/Dockerfile --tag tehkarta-api:ci .
+      - name: Assert non-root runtime
+        run: test "$(docker image inspect tehkarta-api:ci --format '{{.Config.User}}')" = "node"
+
   terraform:
     runs-on: ubuntu-latest
     steps:

@@ -3,6 +3,7 @@ import type {
   IdentityUser,
   MembershipStatus,
   NewSessionRecord,
+  PasswordCredentialRepository,
   SessionRecord,
   SessionRepository,
   UserStatus,
@@ -124,6 +125,20 @@ export class PostgresIdentityRepository implements IdentityRepository {
     );
     const row = result.rows[0];
     return row ? mapMembership(row) : null;
+  }
+}
+
+export class PostgresPasswordCredentialRepository implements PasswordCredentialRepository {
+  constructor(private readonly pool: Pool) {}
+
+  async getPasswordHash(userId: string): Promise<string | null> {
+    const result = await this.pool.query<{ password_hash: string }>(
+      `SELECT password_hash
+       FROM password_credentials
+       WHERE user_id = $1`,
+      [userId]
+    );
+    return result.rows[0]?.password_hash ?? null;
   }
 }
 

@@ -84,6 +84,7 @@ export class AuthenticationError extends Error {
   constructor(
     readonly code:
       | 'INVALID_CREDENTIALS'
+      | 'RATE_LIMITED'
       | 'USER_INACTIVE'
       | 'SESSION_INVALID'
       | 'SESSION_EXPIRED'
@@ -210,4 +211,7 @@ export function normalizeEmail(email: string): string {
 }
 
 export * from './authorization.js';
+export * from './login-throttle.js';
+export * from './password-login.js';
+export * from './passwords.js';
 export * from './session-tokens.js';

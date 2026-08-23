@@ -6,16 +6,22 @@ import {
   PostgresIdentityRepository,
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
+  PostgresLoginThrottleRepository,
+  PostgresPasswordCredentialRepository,
   PostgresSessionRepository
 } from '@tehkarta/database';
 import {
+  Argon2idPasswordHasher,
+  LoginThrottleService,
   NodeSessionTokenCodec,
+  PasswordLoginService,
   SessionService,
   WorkspaceAuthorizationPolicy
 } from '@tehkarta/identity';
 import type { Clock, IdGenerator } from '@tehkarta/ports';
 import { createApiApp } from './app.js';
 import { loadApiConfig } from './config.js';
+import { hashLoginPrincipal } from './security.js';
 
 const config = loadApiConfig();
 const pool = createPostgresPool(databaseConfigFromEnv());
@@ -40,8 +46,26 @@ const sessions = new SessionService({
   ids
 });
 
+const passwordHasher = new Argon2idPasswordHasher();
+// Unknown-account logins still perform a real Argon2id verification to reduce
+// timing differences that could otherwise expose whether an email is registered.
+const dummyPasswordHash = await passwordHasher.hash(`tehkarta-dummy-${randomUUID()}`);
+const loginThrottle = new LoginThrottleService(new PostgresLoginThrottleRepository(pool));
+const passwordLogin = new PasswordLoginService({
+  identities,
+  credentials: new PostgresPasswordCredentialRepository(pool),
+  passwords: passwordHasher,
+  sessions,
+  throttle: loginThrottle,
+  clock,
+  principalHasher: (normalizedEmail) =>
+    hashLoginPrincipal(normalizedEmail, config.authIpHashKey),
+  dummyPasswordHash
+});
+
 const app = await createApiApp(config, {
   sessions,
+  passwordLogin,
   courses: new PostgresCourseRepository(pool),
   lessons: new PostgresLessonRepository(pool),
   invalidations: new PostgresLessonInvalidationRepository(pool),

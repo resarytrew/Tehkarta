@@ -86,6 +86,11 @@ export function sendAuthenticationError(
         error: 'user_inactive',
         code: error.code
       });
+    case 'RATE_LIMITED':
+      return reply.header('retry-after', '900').code(429).send({
+        error: 'too_many_requests',
+        code: error.code
+      });
     case 'INVALID_CREDENTIALS':
     case 'SESSION_INVALID':
     case 'SESSION_EXPIRED':

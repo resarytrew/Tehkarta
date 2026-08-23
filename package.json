@@ -4,12 +4,14 @@
   "version": "0.1.0",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "dev": "pnpm -r --parallel dev",
+    "dev": "pnpm build:packages && pnpm --parallel --filter @tehkarta/api --filter @tehkarta/web dev",
+    "build:packages": "pnpm -r --filter './packages/**' build",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "db:migrate": "pnpm --filter @tehkarta/database migrate",
-    "db:smoke": "pnpm --filter @tehkarta/database smoke"
+    "db:smoke": "pnpm --filter @tehkarta/database smoke",
+    "db:bootstrap-dev": "pnpm --filter @tehkarta/database bootstrap-dev"
   },
   "engines": {
     "node": ">=22"
