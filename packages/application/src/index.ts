@@ -62,3 +62,5 @@ export interface PageResult<T> {
   items: T[];
   nextCursor?: string;
 }
+
+export * from './lesson-governance.js';
