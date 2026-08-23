@@ -169,6 +169,14 @@ export async function createApiApp(
     };
   });
 
+  app.get('/api/v1/courses', async (request) => {
+    const principal = await requireWorkspacePrincipal(request, authRuntime);
+    const context = requestContextFromPrincipal(request, principal);
+    await requirePermission(dependencies.authorization, context, 'course:read', 'course');
+
+    return { data: await dependencies.courses.listSummaries(context) };
+  });
+
   app.get<{ Params: { courseId: string } }>('/api/v1/courses/:courseId', async (request) => {
     const principal = await requireWorkspacePrincipal(request, authRuntime);
     const context = requestContextFromPrincipal(request, principal);
@@ -188,6 +196,24 @@ export async function createApiApp(
 
     return { data: course };
   });
+
+  app.get<{ Params: { courseId: string } }>(
+    '/api/v1/courses/:courseId/lessons',
+    async (request) => {
+      const principal = await requireWorkspacePrincipal(request, authRuntime);
+      const context = requestContextFromPrincipal(request, principal);
+      await requirePermission(dependencies.authorization, context, 'course:read', 'course');
+
+      const course = await dependencies.courses.getById(context, request.params.courseId);
+      if (!course) {
+        throw new ApplicationError('NOT_FOUND', `Course ${request.params.courseId} was not found.`);
+      }
+
+      return {
+        data: await dependencies.lessons.listSummariesByCourse(context, course.id)
+      };
+    }
+  );
 
   app.get<{ Params: { lessonId: string } }>('/api/v1/lessons/:lessonId', async (request) => {
     const principal = await requireWorkspacePrincipal(request, authRuntime);
