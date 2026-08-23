@@ -1,0 +1,25 @@
+openapi: "3.0.0"
+info:
+  title: "Tehkarta API"
+  version: "1.0.0"
+paths:
+  /:
+    x-yc-apigateway-any-method:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "${container_id}"
+        service_account_id: "${service_account_id}"
+  /{proxy+}:
+    parameters:
+      - name: proxy
+        in: path
+        required: false
+        schema:
+          type: string
+        style: simple
+        explode: false
+    x-yc-apigateway-any-method:
+      x-yc-apigateway-integration:
+        type: serverless_containers
+        container_id: "${container_id}"
+        service_account_id: "${service_account_id}"
