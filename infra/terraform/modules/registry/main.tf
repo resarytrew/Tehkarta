@@ -14,8 +14,8 @@ resource "yandex_container_repository_lifecycle_policy" "api" {
   status        = "active"
 
   rule {
-    description  = "Keep recent production candidates and remove old untagged layers."
-    untagged     = true
+    description   = "Keep recent production candidates and remove old untagged layers."
+    untagged      = true
     expire_period = "168h"
   }
 
