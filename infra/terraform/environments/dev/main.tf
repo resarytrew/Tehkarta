@@ -32,15 +32,15 @@ module "storage" {
 module "postgres" {
   source = "../../modules/postgres"
 
-  folder_id          = var.folder_id
-  name               = "${local.name_prefix}-postgres"
-  network_id         = module.network.network_id
-  security_group_id  = module.network.postgres_security_group_id
-  subnet_id          = module.network.subnet_ids[var.primary_subnet_key]
-  zone               = module.network.subnet_zones[var.primary_subnet_key]
-  environment        = "PRESTABLE"
+  folder_id           = var.folder_id
+  name                = "${local.name_prefix}-postgres"
+  network_id          = module.network.network_id
+  security_group_id   = module.network.postgres_security_group_id
+  subnet_id           = module.network.subnet_ids[var.primary_subnet_key]
+  zone                = module.network.subnet_zones[var.primary_subnet_key]
+  environment         = "PRESTABLE"
   deletion_protection = false
-  labels             = local.labels
+  labels              = local.labels
 }
 
 module "registry" {
@@ -63,13 +63,14 @@ module "api" {
   labels       = local.labels
 
   environment_variables = {
-    DB_HOST                  = module.postgres.host_fqdn
-    DB_PORT                  = "6432"
-    DB_NAME                  = module.postgres.database_name
-    DB_USER                  = module.postgres.database_user
-    CONTENT_BUCKET_NAME      = module.storage.content_bucket_name
-    ARTIFACTS_BUCKET_NAME    = module.storage.artifacts_bucket_name
-    YC_FOLDER_ID             = var.folder_id
+    DB_HOST               = module.postgres.host_fqdn
+    DB_PORT               = "6432"
+    DB_NAME               = module.postgres.database_name
+    DB_USER               = module.postgres.database_user
+    DB_SSL                = "require"
+    CONTENT_BUCKET_NAME   = module.storage.content_bucket_name
+    ARTIFACTS_BUCKET_NAME = module.storage.artifacts_bucket_name
+    YC_FOLDER_ID          = var.folder_id
   }
 
   secret_environment = var.api_secret_environment
