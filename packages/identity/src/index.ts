@@ -210,4 +210,6 @@ export function normalizeEmail(email: string): string {
 }
 
 export * from './authorization.js';
+export * from './password-login.js';
+export * from './passwords.js';
 export * from './session-tokens.js';
