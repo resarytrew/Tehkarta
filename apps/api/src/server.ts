@@ -6,11 +6,13 @@ import {
   PostgresIdentityRepository,
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
+  PostgresLoginThrottleRepository,
   PostgresPasswordCredentialRepository,
   PostgresSessionRepository
 } from '@tehkarta/database';
 import {
   Argon2idPasswordHasher,
+  LoginThrottleService,
   NodeSessionTokenCodec,
   PasswordLoginService,
   SessionService,
@@ -54,10 +56,12 @@ const passwordLogin = new PasswordLoginService({
   sessions,
   dummyPasswordHash
 });
+const loginThrottle = new LoginThrottleService(new PostgresLoginThrottleRepository(pool));
 
 const app = await createApiApp(config, {
   sessions,
   passwordLogin,
+  loginThrottle,
   courses: new PostgresCourseRepository(pool),
   lessons: new PostgresLessonRepository(pool),
   invalidations: new PostgresLessonInvalidationRepository(pool),
