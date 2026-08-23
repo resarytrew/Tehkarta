@@ -8,6 +8,7 @@ import type {
   Lesson,
   LessonInvalidation,
   LessonSummary,
+  LoginResponse,
   MeResponse
 } from './types.js';
 
@@ -29,6 +30,37 @@ export interface ApiClientConfig {
 
 function normalizeBaseUrl(value: string): string {
   return value.trim().replace(/\/$/, '');
+}
+
+async function parseResponse<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    let payload: ApiErrorPayload = {};
+    try {
+      payload = (await response.json()) as ApiErrorPayload;
+    } catch {
+      payload = { message: response.statusText || 'Unknown API error.' };
+    }
+    throw new ApiRequestError(response.status, payload);
+  }
+
+  if (response.status === 204) return undefined as T;
+  return (await response.json()) as T;
+}
+
+export async function loginWithPassword(
+  baseUrl: string,
+  input: { email: string; password: string }
+): Promise<LoginResponse> {
+  const response = await fetch(`${normalizeBaseUrl(baseUrl)}/api/v1/auth/login`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      accept: 'application/json',
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(input)
+  });
+  return parseResponse<LoginResponse>(response);
 }
 
 export class TehkartaApiClient {
@@ -67,18 +99,7 @@ export class TehkartaApiClient {
       credentials: 'include'
     });
 
-    if (!response.ok) {
-      let payload: ApiErrorPayload = {};
-      try {
-        payload = (await response.json()) as ApiErrorPayload;
-      } catch {
-        payload = { message: response.statusText || 'Unknown API error.' };
-      }
-      throw new ApiRequestError(response.status, payload);
-    }
-
-    if (response.status === 204) return undefined as T;
-    return (await response.json()) as T;
+    return parseResponse<T>(response);
   }
 
   me(): Promise<MeResponse> {
@@ -158,6 +179,14 @@ export class TehkartaApiClient {
           expectedFieldRevision: input.expectedFieldRevision
         })
       },
+      { csrf: true }
+    );
+  }
+
+  logout(): Promise<void> {
+    return this.request<void>(
+      '/api/v1/auth/logout',
+      { method: 'POST' },
       { csrf: true }
     );
   }
