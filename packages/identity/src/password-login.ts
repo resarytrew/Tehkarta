@@ -62,9 +62,11 @@ export class PasswordLoginService {
     const user = normalizedEmail
       ? await this.deps.identities.getUserByNormalizedEmail(normalizedEmail)
       : null;
-    const storedHash = user ? await this.deps.credentials.getPasswordHash(user.id) : null;
 
-    // Always execute one Argon2 verification, even for an unknown account.
+    // Always execute the password-credential query as well as one Argon2 check.
+    // A missing account therefore follows nearly the same expensive path as a
+    // known account with the wrong password.
+    const storedHash = await this.deps.credentials.getPasswordHash(user?.id ?? '__missing_user__');
     const verified = await this.deps.passwords.verify(
       storedHash ?? this.deps.dummyPasswordHash,
       input.password
