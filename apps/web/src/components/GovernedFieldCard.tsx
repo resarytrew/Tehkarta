@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { GovernedField } from '@tehkarta/domain';
-import type { CoreDecisionKey } from '../types.js';
+import type { CoreDecisionKey, LessonAiProposal } from '../types.js';
 
 export type AiFieldAction = 'variants' | 'regenerate' | 'improve';
 
@@ -10,10 +10,23 @@ interface GovernedFieldCardProps {
   description: string;
   field: GovernedField<string> | undefined;
   busy: boolean;
+  aiBusy: boolean;
+  latestProposal?: LessonAiProposal;
   onSaveDraft(value: string): Promise<void>;
   onApply(value: string): Promise<void>;
-  onAiAction(action: AiFieldAction, semanticKey: CoreDecisionKey): void;
+  onAiAction(action: AiFieldAction, semanticKey: CoreDecisionKey): Promise<void>;
 }
+
+const proposalStatusLabel: Record<LessonAiProposal['status'], string> = {
+  QUEUED: 'в очереди',
+  RUNNING: 'генерируется',
+  READY: 'готово к просмотру',
+  APPLIED: 'применено педагогом',
+  DISMISSED: 'отклонено педагогом',
+  STALE: 'устарело после изменений',
+  FAILED: 'ошибка генерации',
+  CANCELLED: 'отменено'
+};
 
 function statusPresentation(field?: GovernedField<string>): {
   label: string;
@@ -57,6 +70,8 @@ export function GovernedFieldCard({
   description,
   field,
   busy,
+  aiBusy,
+  latestProposal,
   onSaveDraft,
   onApply,
   onAiAction
@@ -78,7 +93,7 @@ export function GovernedFieldCard({
     try {
       await action();
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : 'Не удалось сохранить изменение.');
+      setLocalError(error instanceof Error ? error.message : 'Не удалось выполнить действие.');
     }
   }
 
@@ -170,16 +185,40 @@ export function GovernedFieldCard({
 
       <div className="ai-actions" aria-label={`AI-действия для поля ${title}`}>
         <span className="ai-actions__label">AI-помощник</span>
-        <button type="button" onClick={() => onAiAction('variants', semanticKey)}>
+        <button
+          type="button"
+          disabled={aiBusy}
+          onClick={() => void run(() => onAiAction('variants', semanticKey))}
+        >
           ✨ Предложить варианты
         </button>
-        <button type="button" onClick={() => onAiAction('regenerate', semanticKey)}>
+        <button
+          type="button"
+          disabled={aiBusy}
+          onClick={() => void run(() => onAiAction('regenerate', semanticKey))}
+        >
           ↻ Перегенерировать
         </button>
-        <button type="button" onClick={() => onAiAction('improve', semanticKey)}>
+        <button
+          type="button"
+          disabled={aiBusy || !field}
+          onClick={() => void run(() => onAiAction('improve', semanticKey))}
+        >
           ✎ Улучшить
         </button>
       </div>
+
+      {latestProposal ? (
+        <div className="decision-editor__meta" aria-live="polite">
+          <span>
+            AI-запрос: {proposalStatusLabel[latestProposal.status]}
+            {latestProposal.action === 'VARIANTS'
+              ? ` · ${latestProposal.candidateCountRequested} варианта`
+              : ''}
+          </span>
+          <span>Предложение хранится отдельно и не меняет утверждённый текст.</span>
+        </div>
+      ) : null}
     </article>
   );
 }
