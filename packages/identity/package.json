@@ -12,6 +12,7 @@
     "test": "node --test dist/**/*.test.js || true"
   },
   "dependencies": {
+    "@node-rs/argon2": "2.1.0",
     "@tehkarta/ports": "workspace:*"
   },
   "devDependencies": {
