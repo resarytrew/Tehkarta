@@ -178,8 +178,12 @@ export class PostgresLessonAiProposalRepository
       await client.query(
         `INSERT INTO async_jobs(
            id, workspace_id, job_type, schema_version, status,
-           idempotency_key, payload_json, requested_by, created_at, updated_at
-         ) VALUES ($1, $2, 'LESSON_DECISION_PROPOSAL', '1', 'QUEUED', $3, $4::jsonb, $5, $6, $6)`,
+           idempotency_key, payload_json, requested_by,
+           available_at, created_at, updated_at
+         ) VALUES (
+           $1, $2, 'LESSON_DECISION_PROPOSAL', '1', 'QUEUED',
+           $3, $4::jsonb, $5, $6, $6, $6
+         )`,
         [
           input.jobId,
           context.workspaceId,
