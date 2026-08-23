@@ -8,6 +8,22 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tehkarta
+          POSTGRES_PASSWORD: tehkarta
+          POSTGRES_DB: tehkarta_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tehkarta -d tehkarta_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://tehkarta:tehkarta@localhost:5432/tehkarta_ci
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -19,3 +35,5 @@ jobs:
       - run: pnpm install --no-frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build
+      - run: pnpm test
+      - run: pnpm db:smoke
