@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiRequestError, TehkartaApiClient } from './api.js';
 import { CourseSidebar } from './components/CourseSidebar.js';
 import {
@@ -20,10 +20,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const WORKSPACE_STORAGE_KEY = 'tehkarta.workspaceId';
 const CSRF_STORAGE_KEY = 'tehkarta.csrfToken';
 
-const decisionCopy: Record<
-  CoreDecisionKey,
-  { title: string; description: string }
-> = {
+const decisionCopy: Record<CoreDecisionKey, { title: string; description: string }> = {
   goal: {
     title: 'Цель урока',
     description: 'Что должно измениться в понимании и деятельности ученика к концу урока.'
@@ -74,7 +71,7 @@ function querySelection(): { courseId: string | null; lessonId: string | null } 
   };
 }
 
-function persistSelection(courseId: string | null, lessonId: string | null) {
+function persistSelection(courseId: string | null, lessonId: string | null): void {
   const url = new URL(window.location.href);
   if (courseId) url.searchParams.set('course', courseId);
   else url.searchParams.delete('course');
@@ -85,12 +82,8 @@ function persistSelection(courseId: string | null, lessonId: string | null) {
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApiRequestError) {
-    if (error.status === 401) {
-      return 'Сессия не активна. Нужен вход в систему перед загрузкой рабочего пространства.';
-    }
-    if (error.status === 403) {
-      return error.message || 'Недостаточно прав для этой рабочей области.';
-    }
+    if (error.status === 401) return 'Сессия завершена. Выполните вход ещё раз.';
+    if (error.status === 403) return error.message || 'Недостаточно прав для этой рабочей области.';
     if (error.status === 409) {
       return 'Данные урока изменились в другой вкладке. Актуальная версия уже загружается.';
     }
@@ -107,68 +100,13 @@ function firstLessonId(course: Course, lessons: LessonSummary[]): string | null 
   return lessons[0]?.id ?? null;
 }
 
-interface ConnectionSetupProps {
-  onConnect(workspaceId: string, csrfToken: string): void;
+export interface AppProps {
+  onSessionEnded(): void;
 }
 
-function ConnectionSetup({ onConnect }: ConnectionSetupProps) {
-  const [workspaceId, setWorkspaceId] = useState(storedWorkspaceId());
-  const [csrfToken, setCsrfToken] = useState(storedCsrfToken());
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    const normalized = workspaceId.trim();
-    if (!normalized) return;
-    onConnect(normalized, csrfToken.trim());
-  }
-
-  return (
-    <main className="connection-page">
-      <div className="connection-card">
-        <div className="brand-mark brand-mark--large">ТК</div>
-        <div className="connection-card__copy">
-          <span className="eyebrow">Tehkarta · рабочая среда педагога</span>
-          <h1>Подключите рабочую область</h1>
-          <p>
-            Интерфейс уже работает с защищённым API. На этапе разработки ID рабочей области
-            задаётся вручную; после подключения экрана входа этот шаг исчезнет.
-          </p>
-        </div>
-        <form onSubmit={submit} className="connection-form">
-          <label>
-            ID рабочей области
-            <input
-              value={workspaceId}
-              onChange={(event) => setWorkspaceId(event.target.value)}
-              placeholder="ws_..."
-              autoComplete="off"
-            />
-          </label>
-          <label>
-            CSRF-токен текущей сессии
-            <input
-              type="password"
-              value={csrfToken}
-              onChange={(event) => setCsrfToken(event.target.value)}
-              placeholder="Нужен только для изменений"
-              autoComplete="off"
-            />
-          </label>
-          <button className="button button-primary button-wide" type="submit" disabled={!workspaceId.trim()}>
-            Открыть рабочее пространство
-          </button>
-        </form>
-        <div className="connection-note">
-          Сессионная cookie остаётся HttpOnly: интерфейс её не читает и не хранит.
-        </div>
-      </div>
-    </main>
-  );
-}
-
-export function App() {
-  const [workspaceId, setWorkspaceId] = useState(storedWorkspaceId());
-  const [csrfToken, setCsrfToken] = useState(storedCsrfToken());
+export function App({ onSessionEnded }: AppProps) {
+  const [workspaceId] = useState(storedWorkspaceId);
+  const [csrfToken] = useState(storedCsrfToken);
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [course, setCourse] = useState<Course | null>(null);
   const [lessons, setLessons] = useState<LessonSummary[]>([]);
@@ -182,13 +120,23 @@ export function App() {
 
   const api = useMemo(() => {
     if (!workspaceId) return null;
-    const config = {
+    return new TehkartaApiClient({
       baseUrl: API_BASE_URL,
       workspaceId,
       ...(csrfToken ? { csrfToken } : {})
-    };
-    return new TehkartaApiClient(config);
+    });
   }, [workspaceId, csrfToken]);
+
+  const handleAuthenticationFailure = useCallback(
+    (error: unknown): boolean => {
+      if (error instanceof ApiRequestError && error.status === 401) {
+        onSessionEnded();
+        return true;
+      }
+      return false;
+    },
+    [onSessionEnded]
+  );
 
   const loadLesson = useCallback(
     async (lessonId: string) => {
@@ -231,7 +179,11 @@ export function App() {
   );
 
   const initialize = useCallback(async () => {
-    if (!api) return;
+    if (!api) {
+      onSessionEnded();
+      return;
+    }
+
     setLoading(true);
     setFatalError(null);
     try {
@@ -252,66 +204,45 @@ export function App() {
         setInvalidations([]);
       }
     } catch (error) {
-      setFatalError(errorMessage(error));
+      if (!handleAuthenticationFailure(error)) setFatalError(errorMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [api, loadCourse]);
+  }, [api, handleAuthenticationFailure, loadCourse, onSessionEnded]);
 
   useEffect(() => {
-    if (api) void initialize();
-  }, [api, initialize]);
+    void initialize();
+  }, [initialize]);
 
-  function connect(nextWorkspaceId: string, nextCsrfToken: string) {
-    window.localStorage.setItem(WORKSPACE_STORAGE_KEY, nextWorkspaceId);
-    if (nextCsrfToken) window.sessionStorage.setItem(CSRF_STORAGE_KEY, nextCsrfToken);
-    else window.sessionStorage.removeItem(CSRF_STORAGE_KEY);
-    setWorkspaceId(nextWorkspaceId);
-    setCsrfToken(nextCsrfToken);
-  }
-
-  function resetConnection() {
-    window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
-    window.sessionStorage.removeItem(CSRF_STORAGE_KEY);
-    setWorkspaceId('');
-    setCsrfToken('');
-    setCourses([]);
-    setCourse(null);
-    setLessons([]);
-    setLesson(null);
-    setMe(null);
-    setFatalError(null);
-  }
-
-  async function selectCourse(courseId: string) {
+  async function selectCourse(courseId: string): Promise<void> {
     setLoading(true);
     setFatalError(null);
     try {
       await loadCourse(courseId, null);
     } catch (error) {
-      setFatalError(errorMessage(error));
+      if (!handleAuthenticationFailure(error)) setFatalError(errorMessage(error));
     } finally {
       setLoading(false);
     }
   }
 
-  async function selectLesson(lessonId: string) {
+  async function selectLesson(lessonId: string): Promise<void> {
     setLoading(true);
     setFatalError(null);
     try {
       await loadLesson(lessonId);
     } catch (error) {
-      setFatalError(errorMessage(error));
+      if (!handleAuthenticationFailure(error)) setFatalError(errorMessage(error));
     } finally {
       setLoading(false);
     }
   }
 
-  async function refreshCurrentLesson() {
+  async function refreshCurrentLesson(): Promise<void> {
     if (lesson) await loadLesson(lesson.id);
   }
 
-  async function saveDraft(semanticKey: CoreDecisionKey, value: string) {
+  async function saveDraft(semanticKey: CoreDecisionKey, value: string): Promise<void> {
     if (!api || !lesson) return;
     setMutatingKey(semanticKey);
     setNotice(null);
@@ -327,18 +258,17 @@ export function App() {
       });
       setLesson(response.data);
       setInvalidations(response.invalidations);
-      setNotice('Черновик сохранён. Пока поле не применено, следующие шаги не должны использовать его как утверждённое решение.');
+      setNotice('Черновик сохранён. Пока поле не применено, следующие шаги не используют его как утверждённое решение.');
     } catch (error) {
-      if (error instanceof ApiRequestError && error.status === 409) {
-        await refreshCurrentLesson();
-      }
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCurrentLesson();
       throw new Error(errorMessage(error));
     } finally {
       setMutatingKey(null);
     }
   }
 
-  async function applyDecision(semanticKey: CoreDecisionKey, value: string) {
+  async function applyDecision(semanticKey: CoreDecisionKey, value: string): Promise<void> {
     if (!api || !lesson) return;
     setMutatingKey(semanticKey);
     setNotice(null);
@@ -381,27 +311,37 @@ export function App() {
       setInvalidations(workingInvalidations);
       setNotice('Решение утверждено педагогом и стало авторитетным контекстом для следующих этапов.');
     } catch (error) {
-      if (error instanceof ApiRequestError && error.status === 409) {
-        await refreshCurrentLesson();
-      }
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCurrentLesson();
       throw new Error(errorMessage(error));
     } finally {
       setMutatingKey(null);
     }
   }
 
-  function aiAction(action: AiFieldAction, semanticKey: CoreDecisionKey) {
+  function aiAction(action: AiFieldAction, semanticKey: CoreDecisionKey): void {
     const actionLabel: Record<AiFieldAction, string> = {
       variants: 'варианты',
       regenerate: 'новую версию',
       improve: 'методическое улучшение'
     };
     setNotice(
-      `Для поля «${decisionCopy[semanticKey].title}» выбран запрос AI: ${actionLabel[action]}. UI-контракт готов; следующий AI-срез подключит асинхронную генерацию без автоматической замены утверждённого текста.`
+      `Для поля «${decisionCopy[semanticKey].title}» выбран запрос AI: ${actionLabel[action]}. Следующий AI-срез подключит асинхронную генерацию без автоматической замены утверждённого текста.`
     );
   }
 
-  if (!workspaceId) return <ConnectionSetup onConnect={connect} />;
+  async function signOut(): Promise<void> {
+    try {
+      if (api && csrfToken) await api.logout();
+    } catch {
+      // Client credentials are cleared even if the server-side session has
+      // already expired or the network is unavailable.
+    } finally {
+      onSessionEnded();
+    }
+  }
+
+  if (!workspaceId) return null;
 
   if (fatalError && !course && !lesson) {
     return (
@@ -409,14 +349,14 @@ export function App() {
         <div className="connection-card connection-card--error">
           <div className="brand-mark brand-mark--large">ТК</div>
           <span className="eyebrow">Не удалось открыть рабочее пространство</span>
-          <h1>Нужна активная сессия</h1>
+          <h1>Рабочая область недоступна</h1>
           <p>{fatalError}</p>
           <div className="connection-error-actions">
             <button className="button button-primary" type="button" onClick={() => void initialize()}>
               Повторить
             </button>
-            <button className="button button-ghost" type="button" onClick={resetConnection}>
-              Сменить рабочую область
+            <button className="button button-ghost" type="button" onClick={onSessionEnded}>
+              Войти заново
             </button>
           </div>
         </div>
@@ -449,8 +389,8 @@ export function App() {
             <strong>{me?.user.displayName ?? 'Педагог'}</strong>
             <span>{me?.workspace.role ?? 'Рабочая область'}</span>
           </div>
-          <button className="icon-button" type="button" title="Сменить рабочую область" onClick={resetConnection}>
-            ⋯
+          <button className="icon-button" type="button" title="Выйти" onClick={() => void signOut()}>
+            ↪
           </button>
         </div>
       </header>
@@ -509,11 +449,11 @@ export function App() {
                     type="button"
                     key={number}
                     className={`design-step ${index <= 1 ? 'is-available' : ''} ${index === 1 ? 'is-current' : ''}`}
-                    onClick={() =>
-                      index > 1
-                        ? setNotice(`Раздел «${label}» будет подключён после фиксации базовых педагогических решений.`)
-                        : undefined
-                    }
+                    onClick={() => {
+                      if (index > 1) {
+                        setNotice(`Раздел «${label}» будет подключён после фиксации базовых педагогических решений.`);
+                      }
+                    }}
                   >
                     <span>{number}</span>
                     {label}
