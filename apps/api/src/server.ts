@@ -1,26 +1,81 @@
-import Fastify from 'fastify';
-import cors from '@fastify/cors';
+import { randomUUID } from 'node:crypto';
+import {
+  createPostgresPool,
+  databaseConfigFromEnv,
+  PostgresCourseRepository,
+  PostgresIdentityRepository,
+  PostgresLessonRepository,
+  PostgresSessionRepository
+} from '@tehkarta/database';
+import {
+  NodeSessionTokenCodec,
+  SessionService,
+  WorkspaceAuthorizationPolicy
+} from '@tehkarta/identity';
+import type { Clock, IdGenerator } from '@tehkarta/ports';
+import { createApiApp } from './app.js';
+import { loadApiConfig } from './config.js';
 
-const app = Fastify({ logger: true });
+const config = loadApiConfig();
+const pool = createPostgresPool(databaseConfigFromEnv());
 
-await app.register(cors, {
-  origin: true,
-  credentials: true
+await pool.query('SELECT 1');
+
+const clock: Clock = {
+  now: () => new Date()
+};
+
+const ids: IdGenerator = {
+  generate: (prefix = 'id') => `${prefix}_${randomUUID()}`
+};
+
+const identities = new PostgresIdentityRepository(pool);
+const sessionRepository = new PostgresSessionRepository(pool);
+const sessions = new SessionService({
+  identities,
+  sessions: sessionRepository,
+  tokens: new NodeSessionTokenCodec(),
+  clock,
+  ids
 });
 
-app.get('/health', async () => ({
-  status: 'ok',
-  service: 'tehkarta-api',
-  version: '0.1.0'
-}));
+const app = await createApiApp(config, {
+  sessions,
+  courses: new PostgresCourseRepository(pool),
+  lessons: new PostgresLessonRepository(pool),
+  authorization: new WorkspaceAuthorizationPolicy()
+});
 
-app.get('/api/v1/platform', async () => ({
-  product: 'Tehkarta',
-  architecture: 'course-section-lesson',
-  principle: 'AI proposes, teacher decides'
-}));
+let shuttingDown = false;
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  app.log.info({ signal }, 'graceful shutdown started');
 
-const port = Number(process.env.PORT ?? 8080);
-const host = process.env.HOST ?? '0.0.0.0';
+  const forceExit = setTimeout(() => {
+    app.log.error('graceful shutdown timed out');
+    process.exit(1);
+  }, 10_000);
+  forceExit.unref();
 
-await app.listen({ port, host });
+  try {
+    await app.close();
+    await pool.end();
+    clearTimeout(forceExit);
+    process.exit(0);
+  } catch (error) {
+    app.log.error({ err: error }, 'graceful shutdown failed');
+    process.exit(1);
+  }
+}
+
+process.once('SIGTERM', () => void shutdown('SIGTERM'));
+process.once('SIGINT', () => void shutdown('SIGINT'));
+
+try {
+  await app.listen({ port: config.port, host: config.host });
+} catch (error) {
+  app.log.error({ err: error }, 'API startup failed');
+  await pool.end();
+  process.exitCode = 1;
+}
