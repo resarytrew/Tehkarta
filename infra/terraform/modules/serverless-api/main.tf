@@ -47,8 +47,8 @@ resource "yandex_serverless_container" "api" {
   }
 
   image {
-    url         = var.image_url
-    digest      = var.image_digest
+    url    = var.image_url
+    digest = var.image_digest
     environment = merge({
       NODE_ENV = "production"
       HOST     = "0.0.0.0"
