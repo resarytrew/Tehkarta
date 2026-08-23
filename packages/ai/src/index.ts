@@ -6,6 +6,7 @@ export interface GenerateOptions {
   temperature?: number;
   reasoningEffort?: ReasoningEffort;
   responseSchemaName?: string;
+  responseSchema?: Readonly<Record<string, unknown>>;
 }
 
 export interface GeneratedText {
@@ -45,3 +46,5 @@ export interface AIRouter {
 }
 
 export * from './lesson-decision-proposal-generator.js';
+export * from './openai-compatible-provider.js';
+export * from './routing.js';
