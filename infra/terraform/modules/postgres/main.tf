@@ -38,11 +38,11 @@ resource "yandex_mdb_postgresql_user" "app" {
   cluster_id = yandex_mdb_postgresql_cluster.this.id
   name       = var.database_user
 
-  generate_password         = true
-  user_password_encryption  = "USER_PASSWORD_ENCRYPTION_SCRAM_SHA_256"
-  login                     = true
-  conn_limit                = 100
-  deletion_protection       = var.deletion_protection ? "true" : "false"
+  generate_password        = true
+  user_password_encryption = "USER_PASSWORD_ENCRYPTION_SCRAM_SHA_256"
+  login                    = true
+  conn_limit               = 100
+  deletion_protection      = var.deletion_protection ? "true" : "false"
 
   user_connection_manager {
     connection_folder_id = var.folder_id
@@ -50,8 +50,8 @@ resource "yandex_mdb_postgresql_user" "app" {
   }
 
   settings = {
-    default_transaction_isolation = "read committed"
-    statement_timeout             = 30000
+    default_transaction_isolation       = "read committed"
+    statement_timeout                   = 30000
     idle_in_transaction_session_timeout = 30000
   }
 }
