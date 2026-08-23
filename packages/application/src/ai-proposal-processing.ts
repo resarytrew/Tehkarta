@@ -38,6 +38,7 @@ export interface AsyncJobProcessingRepository {
     workerId: string;
     now: string;
     error: Readonly<Record<string, unknown>>;
+    retryable: boolean;
     retryAt?: string;
   }): Promise<void>;
 }
@@ -58,6 +59,14 @@ export interface LessonAiProposalProcessingRepository {
       promptVersion: string;
       routingPolicyVersion: string;
       now: string;
+    }
+  ): Promise<LessonAiProposal>;
+  markQueuedForRetry(
+    context: RequestContext,
+    input: {
+      proposalId: string;
+      now: string;
+      error: Readonly<Record<string, unknown>>;
     }
   ): Promise<LessonAiProposal>;
   markStale(
@@ -294,8 +303,9 @@ export interface ProcessLessonDecisionProposalDependencies {
 
 /**
  * Executes one already-claimed proposal job. The processor never writes to
- * lesson_decisions. It either produces a separate READY proposal, marks it
- * STALE if teacher state moved, or surfaces a generation failure.
+ * lesson_decisions. It either produces a separate READY proposal or marks it
+ * STALE if teacher state moved. Generation failures are intentionally left for
+ * the queue runner to classify as retryable or terminal.
  */
 export class ProcessLessonDecisionProposal {
   constructor(private readonly deps: ProcessLessonDecisionProposalDependencies) {}
@@ -339,38 +349,154 @@ export class ProcessLessonDecisionProposal {
 
     await this.deps.proposals.markRunning(context, { proposalId: proposal.id, now });
 
-    try {
-      const targetValue = currentTargetField(lesson, proposal)?.value;
-      const generated = await this.deps.generator.generate({
-        proposal,
-        ...(targetValue !== undefined ? { targetValue } : {}),
-        context: buildApprovedProposalContext(course, lesson)
-      });
-      const candidates = validateGeneratedCandidates(proposal, generated.candidates);
+    const targetValue = currentTargetField(lesson, proposal)?.value;
+    const generated = await this.deps.generator.generate({
+      proposal,
+      ...(targetValue !== undefined ? { targetValue } : {}),
+      context: buildApprovedProposalContext(course, lesson)
+    });
+    const candidates = validateGeneratedCandidates(proposal, generated.candidates);
 
-      return await this.deps.proposals.markReady(context, {
-        proposalId: proposal.id,
-        candidates,
-        provider: generated.provider,
-        model: generated.model,
-        promptVersion: generated.promptVersion,
-        routingPolicyVersion: generated.routingPolicyVersion,
-        now: this.deps.clock.now().toISOString()
-      });
-    } catch (error) {
-      const payload: Readonly<Record<string, unknown>> =
-        error instanceof ApplicationError
-          ? { code: error.code, message: error.message }
-          : {
-              code: 'UNEXPECTED_GENERATION_ERROR',
-              message: error instanceof Error ? error.message : 'Unknown generation error.'
-            };
-      await this.deps.proposals.markFailed(context, {
-        proposalId: proposal.id,
+    return this.deps.proposals.markReady(context, {
+      proposalId: proposal.id,
+      candidates,
+      provider: generated.provider,
+      model: generated.model,
+      promptVersion: generated.promptVersion,
+      routingPolicyVersion: generated.routingPolicyVersion,
+      now: this.deps.clock.now().toISOString()
+    });
+  }
+}
+
+function processingError(error: unknown): Readonly<Record<string, unknown>> {
+  if (error instanceof ApplicationError) {
+    return { code: error.code, message: error.message };
+  }
+  return {
+    code: 'UNEXPECTED_GENERATION_ERROR',
+    message: error instanceof Error ? error.message : 'Unknown generation error.'
+  };
+}
+
+function isRetryableProcessingError(error: unknown): boolean {
+  if (!(error instanceof ApplicationError)) return true;
+  return error.code === 'EXTERNAL_SERVICE_FAILED';
+}
+
+function retryTime(now: Date, attemptCount: number): string {
+  const seconds = Math.min(300, 15 * 2 ** Math.max(0, attemptCount - 1));
+  return new Date(now.getTime() + seconds * 1_000).toISOString();
+}
+
+function workerContext(job: ClaimedAsyncJob): RequestContext {
+  return {
+    requestId: `worker:${job.id}:attempt:${job.attemptCount}`,
+    workspaceId: job.workspaceId,
+    actorUserId: job.requestedBy,
+    roles: ['SYSTEM_WORKER'],
+    permissions: []
+  };
+}
+
+export type ProposalWorkerRunResult =
+  | { status: 'IDLE' }
+  | { status: 'PROCESSED'; jobId: string; proposalId: string; proposalStatus: string }
+  | { status: 'RETRY_SCHEDULED'; jobId: string; proposalId?: string }
+  | { status: 'FAILED'; jobId: string; proposalId?: string };
+
+export interface RunNextLessonDecisionProposalJobDependencies {
+  jobs: AsyncJobProcessingRepository;
+  proposals: LessonAiProposalProcessingRepository;
+  processor: ProcessLessonDecisionProposal;
+  clock: Clock;
+}
+
+/**
+ * Claims and executes at most one job. This is deliberately one-shot so the
+ * deployment layer can decide whether to invoke it from a long-running worker,
+ * a scheduler, or a message-driven container without changing domain behavior.
+ */
+export class RunNextLessonDecisionProposalJob {
+  constructor(private readonly deps: RunNextLessonDecisionProposalJobDependencies) {}
+
+  async execute(workerId: string): Promise<ProposalWorkerRunResult> {
+    const claimedAt = this.deps.clock.now();
+    const job = await this.deps.jobs.claimNext({
+      workerId,
+      jobType: 'LESSON_DECISION_PROPOSAL',
+      now: claimedAt.toISOString()
+    });
+    if (!job) return { status: 'IDLE' };
+
+    const rawProposalId = job.payload.proposalId;
+    const proposalId = typeof rawProposalId === 'string' ? rawProposalId : undefined;
+    const context = workerContext(job);
+
+    if (!proposalId) {
+      const error = {
+        code: 'INVALID_JOB_PAYLOAD',
+        message: 'LESSON_DECISION_PROPOSAL job is missing proposalId.'
+      };
+      await this.deps.jobs.fail({
+        jobId: job.id,
+        workerId,
         now: this.deps.clock.now().toISOString(),
-        error: payload
+        error,
+        retryable: false
       });
-      throw error;
+      return { status: 'FAILED', jobId: job.id };
+    }
+
+    try {
+      const proposal = await this.deps.processor.execute(context, proposalId);
+      await this.deps.jobs.succeed({
+        jobId: job.id,
+        workerId,
+        now: this.deps.clock.now().toISOString(),
+        result: { proposalId: proposal.id, proposalStatus: proposal.status }
+      });
+      return {
+        status: 'PROCESSED',
+        jobId: job.id,
+        proposalId: proposal.id,
+        proposalStatus: proposal.status
+      };
+    } catch (error) {
+      const payload = processingError(error);
+      const retryable =
+        isRetryableProcessingError(error) && job.attemptCount < job.maxAttempts;
+      const failedAt = this.deps.clock.now();
+
+      const currentProposal = await this.deps.proposals.getById(context, proposalId);
+      if (currentProposal && ['QUEUED', 'RUNNING'].includes(currentProposal.status)) {
+        if (retryable) {
+          await this.deps.proposals.markQueuedForRetry(context, {
+            proposalId,
+            now: failedAt.toISOString(),
+            error: payload
+          });
+        } else {
+          await this.deps.proposals.markFailed(context, {
+            proposalId,
+            now: failedAt.toISOString(),
+            error: payload
+          });
+        }
+      }
+
+      await this.deps.jobs.fail({
+        jobId: job.id,
+        workerId,
+        now: failedAt.toISOString(),
+        error: payload,
+        retryable,
+        ...(retryable ? { retryAt: retryTime(failedAt, job.attemptCount) } : {})
+      });
+
+      return retryable
+        ? { status: 'RETRY_SCHEDULED', jobId: job.id, proposalId }
+        : { status: 'FAILED', jobId: job.id, proposalId };
     }
   }
 }
