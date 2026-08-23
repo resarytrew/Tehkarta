@@ -43,3 +43,5 @@ export interface ModelRoute {
 export interface AIRouter {
   route(task: GenerationTask): ModelRoute;
 }
+
+export * from './lesson-decision-proposal-generator.js';
