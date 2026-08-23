@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tehkarta
+      POSTGRES_PASSWORD: tehkarta
+      POSTGRES_DB: tehkarta
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tehkarta -d tehkarta"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - tehkarta_pg_data:/var/lib/postgresql/data
+
+volumes:
+  tehkarta_pg_data:
