@@ -209,4 +209,5 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLocaleLowerCase('en-US');
 }
 
+export * from './authorization.js';
 export * from './session-tokens.js';
