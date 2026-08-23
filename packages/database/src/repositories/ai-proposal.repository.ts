@@ -1,10 +1,11 @@
-import type {
-  AiProposalAction,
-  AiProposalCandidate,
-  AiProposalStatus,
-  LessonAiProposal,
-  LessonAiProposalRepository,
-  QueueLessonAiProposalInput
+import {
+  ApplicationError,
+  type AiProposalAction,
+  type AiProposalCandidate,
+  type AiProposalStatus,
+  type LessonAiProposal,
+  type LessonAiProposalRepository,
+  type QueueLessonAiProposalInput
 } from '@tehkarta/application';
 import type { CoreLessonDecisionKey } from '@tehkarta/application';
 import type { RequestContext } from '@tehkarta/ports';
@@ -112,6 +113,32 @@ async function existingByIdempotency(
   return row ? mapProposal(row) : null;
 }
 
+function assertIdempotentReplayMatches(
+  existing: LessonAiProposal,
+  input: QueueLessonAiProposalInput
+): void {
+  const sameRequest =
+    existing.lessonId === input.lessonId &&
+    existing.semanticKey === input.semanticKey &&
+    existing.action === input.action &&
+    existing.requestedLessonVersion === input.requestedLessonVersion &&
+    existing.candidateCountRequested === input.candidateCountRequested &&
+    (existing.baseDecisionId ?? null) === (input.baseDecisionId ?? null) &&
+    (existing.baseRevision ?? null) === (input.baseRevision ?? null) &&
+    (existing.teacherInstruction ?? null) === (input.teacherInstruction ?? null);
+
+  if (!sameRequest) {
+    throw new ApplicationError(
+      'CONFLICT',
+      'The AI proposal request key was already used for a different request.',
+      {
+        idempotencyKey: input.idempotencyKey,
+        existingProposalId: existing.id
+      }
+    );
+  }
+}
+
 export class PostgresLessonAiProposalRepository implements LessonAiProposalRepository {
   constructor(private readonly pool: Pool) {}
 
@@ -123,8 +150,18 @@ export class PostgresLessonAiProposalRepository implements LessonAiProposalRepos
     try {
       await client.query('BEGIN');
 
+      // Serialize concurrent replays of the same request key across horizontally
+      // scaled API instances. Without this lock, two requests could both miss the
+      // initial lookup and race on the unique constraint instead of behaving as
+      // clean idempotent replays.
+      await client.query(
+        `SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))`,
+        [context.workspaceId, input.idempotencyKey]
+      );
+
       const existing = await existingByIdempotency(client, context, input.idempotencyKey);
       if (existing) {
+        assertIdempotentReplayMatches(existing, input);
         await client.query('COMMIT');
         return existing;
       }
