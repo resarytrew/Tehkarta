@@ -19,6 +19,7 @@ export interface PasswordLoginDependencies {
   sessions: SessionService;
   throttle: LoginThrottleService;
   clock: Clock;
+  principalHasher(normalizedEmail: string): string;
   dummyPasswordHash: string;
 }
 
@@ -26,7 +27,6 @@ export interface PasswordLoginInput {
   email: string;
   password: string;
   ttlSeconds: number;
-  principalHash: string;
   ipHash: string;
   userAgent?: string;
 }
@@ -44,20 +44,21 @@ export interface PasswordLoginResult {
  * enumeration oracle.
  *
  * Expensive Argon2 verification is guarded by a persistent two-scope throttle,
- * so horizontally scaled serverless instances share the same abuse state.
+ * so horizontally scaled serverless instances share the same abuse state. The
+ * repository receives only keyed hashes, never a raw email address or IP.
  */
 export class PasswordLoginService {
   constructor(private readonly deps: PasswordLoginDependencies) {}
 
   async login(input: PasswordLoginInput): Promise<PasswordLoginResult> {
+    const normalizedEmail = normalizeEmail(input.email);
     const now = this.deps.clock.now();
     const throttleKeys = {
-      principalHash: input.principalHash,
+      principalHash: this.deps.principalHasher(normalizedEmail),
       ipHash: input.ipHash
     };
     await this.deps.throttle.assertAllowed(throttleKeys, now);
 
-    const normalizedEmail = normalizeEmail(input.email);
     const user = normalizedEmail
       ? await this.deps.identities.getUserByNormalizedEmail(normalizedEmail)
       : null;
