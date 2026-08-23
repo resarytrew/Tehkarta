@@ -46,7 +46,7 @@ jobs:
         with:
           terraform_version: 1.15.8
       - name: Terraform format
-        run: terraform fmt -check -recursive infra/terraform
+        run: terraform fmt -check -diff -recursive infra/terraform
       - name: Terraform init
         working-directory: infra/terraform/environments/dev
         run: terraform init -backend=false -input=false
