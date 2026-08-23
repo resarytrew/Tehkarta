@@ -25,14 +25,36 @@ export function createPostgresPool(config: DatabaseConfig): Pool {
   return new Pool(poolConfig);
 }
 
-export function databaseConfigFromEnv(env: NodeJS.ProcessEnv = process.env): DatabaseConfig {
-  const connectionString = env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error('DATABASE_URL is required.');
+function databaseConnectionStringFromEnv(env: NodeJS.ProcessEnv): string {
+  if (env.DATABASE_URL) return env.DATABASE_URL;
+
+  const host = env.DB_HOST;
+  const database = env.DB_NAME;
+  const user = env.DB_USER;
+  const password = env.DB_PASSWORD;
+
+  const missing = [
+    ['DB_HOST', host],
+    ['DB_NAME', database],
+    ['DB_USER', user],
+    ['DB_PASSWORD', password]
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name);
+
+  if (missing.length > 0) {
+    throw new Error(
+      `Database configuration is incomplete. Set DATABASE_URL or all split variables. Missing: ${missing.join(', ')}.`
+    );
   }
 
+  const port = env.DB_PORT ?? '5432';
+  return `postgresql://${encodeURIComponent(user!)}:${encodeURIComponent(password!)}@${host}:${port}/${encodeURIComponent(database!)}`;
+}
+
+export function databaseConfigFromEnv(env: NodeJS.ProcessEnv = process.env): DatabaseConfig {
   const config: DatabaseConfig = {
-    connectionString,
+    connectionString: databaseConnectionStringFromEnv(env),
     applicationName: env.DB_APPLICATION_NAME ?? 'tehkarta-api'
   };
 

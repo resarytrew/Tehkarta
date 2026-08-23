@@ -1,0 +1,24 @@
+cloud_id  = "<yandex-cloud-id>"
+folder_id = "<yandex-folder-id>"
+
+# First apply with false: network, storage, PostgreSQL and Container Registry are created.
+enable_api_runtime = false
+
+# After CI pushes the image, set enable_api_runtime = true.
+api_image_tag    = "dev"
+api_image_digest = null
+
+# Example once the Connection Manager-created Lockbox secret is known:
+# api_secret_environment = {
+#   DB_PASSWORD = {
+#     id         = "<lockbox-secret-id>"
+#     version_id = "<lockbox-version-id>"
+#     key        = "password"
+#   }
+# }
+
+# Optional custom domain after Certificate Manager validation:
+# api_custom_domain = {
+#   fqdn           = "api.dev.example.ru"
+#   certificate_id = "<certificate-id>"
+# }

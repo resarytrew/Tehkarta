@@ -37,3 +37,19 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm db:smoke
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.15.8
+      - name: Terraform format
+        run: terraform fmt -check -diff -recursive infra/terraform
+      - name: Terraform init
+        working-directory: infra/terraform/environments/dev
+        run: terraform init -backend=false -input=false
+      - name: Terraform validate
+        working-directory: infra/terraform/environments/dev
+        run: terraform validate -no-color

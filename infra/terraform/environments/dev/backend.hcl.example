@@ -1,0 +1,16 @@
+endpoints = {
+  s3 = "https://storage.yandexcloud.net"
+}
+
+bucket = "<terraform-state-bucket>"
+region = "ru-central1"
+key    = "tehkarta/dev/terraform.tfstate"
+
+encrypt                     = true
+skip_region_validation      = true
+skip_credentials_validation = true
+skip_requesting_account_id  = true
+skip_s3_checksum            = true
+
+# Credentials are never committed. Export AWS_ACCESS_KEY_ID and
+# AWS_SECRET_ACCESS_KEY for the service account that owns the state bucket.
