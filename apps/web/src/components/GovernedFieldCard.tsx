@@ -8,7 +8,7 @@ interface GovernedFieldCardProps {
   semanticKey: CoreDecisionKey;
   title: string;
   description: string;
-  field?: GovernedField<string>;
+  field: GovernedField<string> | undefined;
   busy: boolean;
   onSaveDraft(value: string): Promise<void>;
   onApply(value: string): Promise<void>;
