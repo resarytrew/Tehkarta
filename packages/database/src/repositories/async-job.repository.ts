@@ -93,7 +93,8 @@ export class PostgresAsyncJobProcessingRepository implements AsyncJobProcessingR
              locked_by = $3,
              started_at = COALESCE(started_at, $2),
              updated_at = $2,
-             error_json = NULL
+             error_json = NULL,
+             finished_at = NULL
          WHERE id = $1
          RETURNING id, workspace_id, job_type, schema_version, payload_json,
                    requested_by, attempt_count, max_attempts`,
@@ -138,6 +139,7 @@ export class PostgresAsyncJobProcessingRepository implements AsyncJobProcessingR
     workerId: string;
     now: string;
     error: Readonly<Record<string, unknown>>;
+    retryable: boolean;
     retryAt?: string;
   }): Promise<void> {
     const current = await this.pool.query<{ attempt_count: number; max_attempts: number }>(
@@ -154,11 +156,15 @@ export class PostgresAsyncJobProcessingRepository implements AsyncJobProcessingR
       );
     }
 
-    const terminal = row.attempt_count >= row.max_attempts;
+    const terminal = !input.retryable || row.attempt_count >= row.max_attempts;
     const now = new Date(input.now);
-    const retryAt = input.retryAt ? new Date(input.retryAt) : now;
+    const retryAt = terminal
+      ? now
+      : input.retryAt
+        ? new Date(input.retryAt)
+        : now;
 
-    await this.pool.query(
+    const result = await this.pool.query(
       `UPDATE async_jobs
        SET status = 'FAILED', error_json = $3::jsonb,
            available_at = $4,
@@ -174,5 +180,11 @@ export class PostgresAsyncJobProcessingRepository implements AsyncJobProcessingR
         now
       ]
     );
+    if (!result.rowCount) {
+      throw new ApplicationError(
+        'CONFLICT',
+        `Async job ${input.jobId} lost its worker lease before failure was recorded.`
+      );
+    }
   }
 }
