@@ -49,19 +49,20 @@ const passwordHasher = new Argon2idPasswordHasher();
 // Unknown-account logins still perform a real Argon2id verification to reduce
 // timing differences that could otherwise expose whether an email is registered.
 const dummyPasswordHash = await passwordHasher.hash(`tehkarta-dummy-${randomUUID()}`);
+const loginThrottle = new LoginThrottleService(new PostgresLoginThrottleRepository(pool));
 const passwordLogin = new PasswordLoginService({
   identities,
   credentials: new PostgresPasswordCredentialRepository(pool),
   passwords: passwordHasher,
   sessions,
+  throttle: loginThrottle,
+  clock,
   dummyPasswordHash
 });
-const loginThrottle = new LoginThrottleService(new PostgresLoginThrottleRepository(pool));
 
 const app = await createApiApp(config, {
   sessions,
   passwordLogin,
-  loginThrottle,
   courses: new PostgresCourseRepository(pool),
   lessons: new PostgresLessonRepository(pool),
   invalidations: new PostgresLessonInvalidationRepository(pool),
