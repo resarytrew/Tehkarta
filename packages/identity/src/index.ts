@@ -88,6 +88,7 @@ export class AuthenticationError extends Error {
       | 'SESSION_INVALID'
       | 'SESSION_EXPIRED'
       | 'WORKSPACE_FORBIDDEN'
+      | 'CSRF_INVALID'
   ) {
     super(code);
     this.name = 'AuthenticationError';
@@ -100,10 +101,15 @@ export interface SessionServiceDependencies {
   tokens: SessionTokenCodec;
   clock: Clock;
   ids: IdGenerator;
+  touchIntervalMs?: number;
 }
 
 export class SessionService {
-  constructor(private readonly deps: SessionServiceDependencies) {}
+  private readonly touchIntervalMs: number;
+
+  constructor(private readonly deps: SessionServiceDependencies) {
+    this.touchIntervalMs = deps.touchIntervalMs ?? 5 * 60 * 1000;
+  }
 
   async issueForUser(input: {
     userId: string;
@@ -142,20 +148,26 @@ export class SessionService {
     };
   }
 
-  async resolveWorkspace(
-    rawSessionToken: string,
-    workspaceId: WorkspaceId
-  ): Promise<AuthenticatedWorkspacePrincipal> {
+  private async requireActiveSession(rawSessionToken: string): Promise<SessionRecord> {
     const tokenHash = this.deps.tokens.hashSessionToken(rawSessionToken);
     const session = await this.deps.sessions.findByTokenHash(tokenHash);
     if (!session || session.revokedAt) {
       throw new AuthenticationError('SESSION_INVALID');
     }
 
-    const now = this.deps.clock.now();
-    if (new Date(session.expiresAt).getTime() <= now.getTime()) {
+    if (new Date(session.expiresAt).getTime() <= this.deps.clock.now().getTime()) {
       throw new AuthenticationError('SESSION_EXPIRED');
     }
+
+    return session;
+  }
+
+  async resolveWorkspace(
+    rawSessionToken: string,
+    workspaceId: WorkspaceId
+  ): Promise<AuthenticatedWorkspacePrincipal> {
+    const session = await this.requireActiveSession(rawSessionToken);
+    const now = this.deps.clock.now();
 
     const user = await this.deps.identities.getUserById(session.userId);
     if (!user || user.status !== 'ACTIVE') {
@@ -167,9 +179,22 @@ export class SessionService {
       throw new AuthenticationError('WORKSPACE_FORBIDDEN');
     }
 
-    await this.deps.sessions.touch(session.id, now.toISOString());
+    const lastSeenMs = session.lastSeenAt ? new Date(session.lastSeenAt).getTime() : 0;
+    if (now.getTime() - lastSeenMs >= this.touchIntervalMs) {
+      await this.deps.sessions.touch(session.id, now.toISOString());
+    }
 
     return { user, membership, sessionId: session.id };
+  }
+
+  async assertCsrf(rawSessionToken: string, rawCsrfToken: string): Promise<void> {
+    const session = await this.requireActiveSession(rawSessionToken);
+    if (
+      !session.csrfSecretHash ||
+      !this.deps.tokens.verifyCsrfToken(rawCsrfToken, session.csrfSecretHash)
+    ) {
+      throw new AuthenticationError('CSRF_INVALID');
+    }
   }
 
   async revoke(rawSessionToken: string): Promise<void> {
