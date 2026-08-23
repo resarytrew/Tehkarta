@@ -7,10 +7,12 @@ import {
 } from './components/GovernedFieldCard.js';
 import { InvalidationPanel } from './components/InvalidationPanel.js';
 import type {
+  AiProposalAction,
   CoreDecisionKey,
   Course,
   CourseSummary,
   Lesson,
+  LessonAiProposal,
   LessonInvalidation,
   LessonSummary,
   MeResponse
@@ -45,6 +47,12 @@ const contentFreedomLabels: Record<Lesson['designFreedom']['contentFreedom'], st
   TEXTBOOK_STRICT: 'Строго по УМК',
   TEXTBOOK_PLUS: 'УМК + проверенные материалы',
   EXPANDED: 'Расширенный курс'
+};
+
+const aiActionMap: Record<AiFieldAction, AiProposalAction> = {
+  variants: 'VARIANTS',
+  regenerate: 'REGENERATE',
+  improve: 'IMPROVE'
 };
 
 function storedWorkspaceId(): string {
@@ -100,6 +108,13 @@ function firstLessonId(course: Course, lessons: LessonSummary[]): string | null 
   return lessons[0]?.id ?? null;
 }
 
+function putProposalFirst(
+  current: LessonAiProposal[],
+  proposal: LessonAiProposal
+): LessonAiProposal[] {
+  return [proposal, ...current.filter((item) => item.id !== proposal.id)];
+}
+
 export interface AppProps {
   onSessionEnded(): void;
 }
@@ -112,9 +127,11 @@ export function App({ onSessionEnded }: AppProps) {
   const [lessons, setLessons] = useState<LessonSummary[]>([]);
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [invalidations, setInvalidations] = useState<LessonInvalidation[]>([]);
+  const [proposals, setProposals] = useState<LessonAiProposal[]>([]);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [mutatingKey, setMutatingKey] = useState<CoreDecisionKey | null>(null);
+  const [aiRequestKey, setAiRequestKey] = useState<CoreDecisionKey | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -141,12 +158,14 @@ export function App({ onSessionEnded }: AppProps) {
   const loadLesson = useCallback(
     async (lessonId: string) => {
       if (!api) return;
-      const [nextLesson, nextInvalidations] = await Promise.all([
+      const [nextLesson, nextInvalidations, nextProposals] = await Promise.all([
         api.getLesson(lessonId),
-        api.listInvalidations(lessonId)
+        api.listInvalidations(lessonId),
+        api.listAiProposals(lessonId)
       ]);
       setLesson(nextLesson);
       setInvalidations(nextInvalidations);
+      setProposals(nextProposals);
       persistSelection(nextLesson.courseId, nextLesson.id);
     },
     [api]
@@ -172,6 +191,7 @@ export function App({ onSessionEnded }: AppProps) {
       } else {
         setLesson(null);
         setInvalidations([]);
+        setProposals([]);
         persistSelection(nextCourse.id, null);
       }
     },
@@ -202,6 +222,7 @@ export function App({ onSessionEnded }: AppProps) {
         setLessons([]);
         setLesson(null);
         setInvalidations([]);
+        setProposals([]);
       }
     } catch (error) {
       if (!handleAuthenticationFailure(error)) setFatalError(errorMessage(error));
@@ -319,15 +340,34 @@ export function App({ onSessionEnded }: AppProps) {
     }
   }
 
-  function aiAction(action: AiFieldAction, semanticKey: CoreDecisionKey): void {
-    const actionLabel: Record<AiFieldAction, string> = {
-      variants: 'варианты',
-      regenerate: 'новую версию',
-      improve: 'методическое улучшение'
-    };
-    setNotice(
-      `Для поля «${decisionCopy[semanticKey].title}» выбран запрос AI: ${actionLabel[action]}. Следующий AI-срез подключит асинхронную генерацию без автоматической замены утверждённого текста.`
-    );
+  async function aiAction(
+    action: AiFieldAction,
+    semanticKey: CoreDecisionKey
+  ): Promise<void> {
+    if (!api || !lesson) return;
+    setAiRequestKey(semanticKey);
+    setNotice(null);
+
+    try {
+      const proposal = await api.requestAiProposal({
+        lessonId: lesson.id,
+        semanticKey,
+        action: aiActionMap[action],
+        expectedLessonVersion: lesson.version,
+        requestKey: `web-${crypto.randomUUID()}`,
+        candidateCount: action === 'variants' ? 3 : 1
+      });
+      setProposals((current) => putProposalFirst(current, proposal));
+      setNotice(
+        `AI-запрос для поля «${decisionCopy[semanticKey].title}» поставлен в очередь. Утверждённое педагогом решение осталось без изменений.`
+      );
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCurrentLesson();
+      throw new Error(errorMessage(error));
+    } finally {
+      setAiRequestKey(null);
+    }
   }
 
   async function signOut(): Promise<void> {
@@ -481,6 +521,10 @@ export function App({ onSessionEnded }: AppProps) {
                       description={decisionCopy[semanticKey].description}
                       field={lesson[semanticKey]}
                       busy={mutatingKey === semanticKey}
+                      aiBusy={aiRequestKey === semanticKey}
+                      latestProposal={proposals.find(
+                        (proposal) => proposal.semanticKey === semanticKey
+                      )}
                       onSaveDraft={(value) => saveDraft(semanticKey, value)}
                       onApply={(value) => applyDecision(semanticKey, value)}
                       onAiAction={aiAction}
@@ -522,6 +566,10 @@ export function App({ onSessionEnded }: AppProps) {
                           ).length}{' '}
                           из 3
                         </strong>
+                      </div>
+                      <div>
+                        <span>AI-запросов по уроку</span>
+                        <strong>{proposals.length}</strong>
                       </div>
                     </div>
                   </div>

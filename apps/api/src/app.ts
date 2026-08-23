@@ -8,6 +8,7 @@ import {
   EditCoreLessonDecision,
   type CoreLessonDecisionKey,
   type CourseRepository,
+  type LessonAiProposalRepository,
   type LessonInvalidationRepository,
   type LessonRepository
 } from '@tehkarta/application';
@@ -17,6 +18,7 @@ import {
   type SessionService
 } from '@tehkarta/identity';
 import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
+import { registerAiProposalRoutes } from './ai-proposal-routes.js';
 import {
   requestContextFromPrincipal,
   requireCsrf,
@@ -33,6 +35,7 @@ export interface ApiDependencies {
   courses: CourseRepository;
   lessons: LessonRepository;
   invalidations: LessonInvalidationRepository;
+  proposals: LessonAiProposalRepository;
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
@@ -390,6 +393,15 @@ export async function createApiApp(
       };
     }
   );
+
+  await registerAiProposalRoutes(app, {
+    auth: authRuntime,
+    lessons: dependencies.lessons,
+    proposals: dependencies.proposals,
+    authorization: dependencies.authorization,
+    clock: dependencies.clock,
+    ids: dependencies.ids
+  });
 
   app.post('/api/v1/auth/logout', async (request, reply) => {
     await requireCsrf(request, authRuntime);

@@ -4,6 +4,7 @@ import {
   databaseConfigFromEnv,
   PostgresCourseRepository,
   PostgresIdentityRepository,
+  PostgresLessonAiProposalRepository,
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
   PostgresLoginThrottleRepository,
@@ -69,6 +70,7 @@ const app = await createApiApp(config, {
   courses: new PostgresCourseRepository(pool),
   lessons: new PostgresLessonRepository(pool),
   invalidations: new PostgresLessonInvalidationRepository(pool),
+  proposals: new PostgresLessonAiProposalRepository(pool),
   authorization: new WorkspaceAuthorizationPolicy(),
   clock,
   ids
