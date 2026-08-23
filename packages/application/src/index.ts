@@ -91,3 +91,4 @@ export interface PageResult<T> {
 
 export * from './lesson-governance.js';
 export * from './ai-proposals.js';
+export * from './ai-proposal-processing.js';
