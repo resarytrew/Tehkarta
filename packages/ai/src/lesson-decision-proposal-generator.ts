@@ -17,10 +17,6 @@ interface RawCandidate {
   distinction?: string;
 }
 
-interface RawProposalResponse {
-  candidates: RawCandidate[];
-}
-
 const PROMPT_VERSION = 'lesson-decision-proposal-v1';
 
 function taskForAction(action: AiProposalAction): GenerationTask {
@@ -99,6 +95,31 @@ ${JSON.stringify(input.context, null, 2)}
 - не добавляй markdown, нумерацию или служебные комментарии внутрь value.`;
 }
 
+function proposalResponseSchema(candidateCount: number): Readonly<Record<string, unknown>> {
+  return {
+    type: 'object',
+    additionalProperties: false,
+    required: ['candidates'],
+    properties: {
+      candidates: {
+        type: 'array',
+        minItems: candidateCount,
+        maxItems: candidateCount,
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['value', 'rationale'],
+          properties: {
+            value: { type: 'string', minLength: 3, maxLength: 4_000 },
+            rationale: { type: 'string', minLength: 3, maxLength: 2_000 },
+            distinction: { type: 'string', maxLength: 1_000 }
+          }
+        }
+      }
+    }
+  };
+}
+
 function parseResponse(value: unknown, expectedCount: number): RawCandidate[] {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('AI structured response must be an object.');
@@ -146,7 +167,8 @@ export class RoutedLessonDecisionProposalGenerator implements LessonDecisionProp
       prompt: userPrompt(input),
       reasoningEffort: route.reasoningEffort,
       temperature: input.proposal.action === 'VARIANTS' ? 0.6 : 0.35,
-      responseSchemaName: 'lesson_decision_proposal_v1'
+      responseSchemaName: 'lesson_decision_proposal_v1',
+      responseSchema: proposalResponseSchema(input.proposal.candidateCountRequested)
     });
     const parsed = parseResponse(raw, input.proposal.candidateCountRequested);
 
