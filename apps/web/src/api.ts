@@ -1,0 +1,164 @@
+import type {
+  ApiData,
+  ApiErrorPayload,
+  CoreDecisionKey,
+  Course,
+  CourseSummary,
+  GovernanceResponse,
+  Lesson,
+  LessonInvalidation,
+  LessonSummary,
+  MeResponse
+} from './types.js';
+
+export class ApiRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly payload: ApiErrorPayload
+  ) {
+    super(payload.message ?? `API request failed with status ${status}.`);
+    this.name = 'ApiRequestError';
+  }
+}
+
+export interface ApiClientConfig {
+  baseUrl: string;
+  workspaceId: string;
+  csrfToken?: string;
+}
+
+function normalizeBaseUrl(value: string): string {
+  return value.trim().replace(/\/$/, '');
+}
+
+export class TehkartaApiClient {
+  private readonly baseUrl: string;
+
+  constructor(private readonly config: ApiClientConfig) {
+    this.baseUrl = normalizeBaseUrl(config.baseUrl);
+  }
+
+  private async request<T>(
+    path: string,
+    init: RequestInit = {},
+    options: { csrf?: boolean } = {}
+  ): Promise<T> {
+    const headers = new Headers(init.headers);
+    headers.set('x-workspace-id', this.config.workspaceId);
+    headers.set('accept', 'application/json');
+
+    if (init.body !== undefined && !headers.has('content-type')) {
+      headers.set('content-type', 'application/json');
+    }
+
+    if (options.csrf) {
+      if (!this.config.csrfToken) {
+        throw new ApiRequestError(403, {
+          code: 'CSRF_REQUIRED',
+          message: 'Для изменения урока нужен CSRF-токен активной сессии.'
+        });
+      }
+      headers.set('x-csrf-token', this.config.csrfToken);
+    }
+
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      ...init,
+      headers,
+      credentials: 'include'
+    });
+
+    if (!response.ok) {
+      let payload: ApiErrorPayload = {};
+      try {
+        payload = (await response.json()) as ApiErrorPayload;
+      } catch {
+        payload = { message: response.statusText || 'Unknown API error.' };
+      }
+      throw new ApiRequestError(response.status, payload);
+    }
+
+    if (response.status === 204) return undefined as T;
+    return (await response.json()) as T;
+  }
+
+  me(): Promise<MeResponse> {
+    return this.request<MeResponse>('/api/v1/me');
+  }
+
+  async listCourses(): Promise<CourseSummary[]> {
+    const response = await this.request<ApiData<CourseSummary[]>>('/api/v1/courses');
+    return response.data;
+  }
+
+  async getCourse(courseId: string): Promise<Course> {
+    const response = await this.request<ApiData<Course>>(
+      `/api/v1/courses/${encodeURIComponent(courseId)}`
+    );
+    return response.data;
+  }
+
+  async listLessons(courseId: string): Promise<LessonSummary[]> {
+    const response = await this.request<ApiData<LessonSummary[]>>(
+      `/api/v1/courses/${encodeURIComponent(courseId)}/lessons`
+    );
+    return response.data;
+  }
+
+  async getLesson(lessonId: string): Promise<Lesson> {
+    const response = await this.request<ApiData<Lesson>>(
+      `/api/v1/lessons/${encodeURIComponent(lessonId)}`
+    );
+    return response.data;
+  }
+
+  async listInvalidations(lessonId: string): Promise<LessonInvalidation[]> {
+    const response = await this.request<ApiData<LessonInvalidation[]>>(
+      `/api/v1/lessons/${encodeURIComponent(lessonId)}/invalidations`
+    );
+    return response.data;
+  }
+
+  editDecision(input: {
+    lessonId: string;
+    semanticKey: CoreDecisionKey;
+    value: string;
+    expectedLessonVersion: number;
+    expectedFieldRevision?: number;
+  }): Promise<GovernanceResponse> {
+    const body = {
+      value: input.value,
+      expectedLessonVersion: input.expectedLessonVersion,
+      ...(input.expectedFieldRevision !== undefined
+        ? { expectedFieldRevision: input.expectedFieldRevision }
+        : {})
+    };
+
+    return this.request<GovernanceResponse>(
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/decisions/${input.semanticKey}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(body)
+      },
+      { csrf: true }
+    );
+  }
+
+  approveDecision(input: {
+    lessonId: string;
+    semanticKey: CoreDecisionKey;
+    expectedLessonVersion: number;
+    expectedFieldRevision: number;
+  }): Promise<GovernanceResponse> {
+    return this.request<GovernanceResponse>(
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/decisions/${input.semanticKey}/approve`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          expectedLessonVersion: input.expectedLessonVersion,
+          expectedFieldRevision: input.expectedFieldRevision
+        })
+      },
+      { csrf: true }
+    );
+  }
+}

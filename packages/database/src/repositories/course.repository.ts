@@ -1,7 +1,23 @@
-import { ApplicationError, type CourseRepository } from '@tehkarta/application';
+import {
+  ApplicationError,
+  type CourseRepository,
+  type CourseSummary
+} from '@tehkarta/application';
 import type { Course, Section } from '@tehkarta/domain';
 import type { OptimisticWriteOptions, RequestContext } from '@tehkarta/ports';
 import type { Pool } from 'pg';
+
+interface CourseSummaryRow {
+  id: string;
+  workspace_id: string;
+  version: number;
+  subject: string;
+  grade: number;
+  academic_year: string;
+  title: string;
+  section_count: number;
+  lesson_count: number;
+}
 
 interface CourseRow {
   id: string;
@@ -36,6 +52,39 @@ interface RequirementRow {
 
 export class PostgresCourseRepository implements CourseRepository {
   constructor(private readonly pool: Pool) {}
+
+  async listSummaries(context: RequestContext): Promise<CourseSummary[]> {
+    const result = await this.pool.query<CourseSummaryRow>(
+      `SELECT c.id, c.workspace_id, c.version, c.subject, c.grade, c.academic_year, c.title,
+              count(DISTINCT cs.id)::int AS section_count,
+              count(DISTINCT l.id)::int AS lesson_count
+       FROM courses c
+       LEFT JOIN course_sections cs
+         ON cs.course_id = c.id
+        AND cs.workspace_id = c.workspace_id
+        AND cs.archived_at IS NULL
+       LEFT JOIN lessons l
+         ON l.course_id = c.id
+        AND l.workspace_id = c.workspace_id
+        AND l.archived_at IS NULL
+       WHERE c.workspace_id = $1 AND c.archived_at IS NULL
+       GROUP BY c.id, c.workspace_id, c.version, c.subject, c.grade, c.academic_year, c.title
+       ORDER BY c.academic_year DESC, c.grade, c.subject, c.title`,
+      [context.workspaceId]
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      workspaceId: row.workspace_id,
+      version: row.version,
+      subject: row.subject,
+      grade: row.grade,
+      academicYear: row.academic_year,
+      title: row.title,
+      sectionCount: row.section_count,
+      lessonCount: row.lesson_count
+    }));
+  }
 
   async getById(context: RequestContext, courseId: string): Promise<Course | null> {
     const courseResult = await this.pool.query<CourseRow>(

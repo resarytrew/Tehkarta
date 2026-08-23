@@ -1,4 +1,4 @@
-import type { LessonRepository } from '@tehkarta/application';
+import type { LessonRepository, LessonSummary } from '@tehkarta/application';
 import { ApplicationError } from '@tehkarta/application';
 import type {
   DesignFreedom,
@@ -11,6 +11,18 @@ import type {
 } from '@tehkarta/domain';
 import type { OptimisticWriteOptions, RequestContext } from '@tehkarta/ports';
 import type { Pool, PoolClient } from 'pg';
+
+interface LessonSummaryRow {
+  id: string;
+  workspace_id: string;
+  course_id: string;
+  section_id: string;
+  version: number;
+  position: number;
+  title: string;
+  duration_minutes: number;
+  state: LessonSummary['state'];
+}
 
 interface LessonRow {
   id: string;
@@ -204,6 +216,32 @@ async function persistDecision(
 
 export class PostgresLessonRepository implements LessonRepository {
   constructor(private readonly pool: Pool) {}
+
+  async listSummariesByCourse(
+    context: RequestContext,
+    courseId: string
+  ): Promise<LessonSummary[]> {
+    const result = await this.pool.query<LessonSummaryRow>(
+      `SELECT id, workspace_id, course_id, section_id, version, position,
+              title, duration_minutes, state
+       FROM lessons
+       WHERE course_id = $1 AND workspace_id = $2 AND archived_at IS NULL
+       ORDER BY section_id, position`,
+      [courseId, context.workspaceId]
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      workspaceId: row.workspace_id,
+      courseId: row.course_id,
+      sectionId: row.section_id,
+      version: row.version,
+      order: row.position,
+      title: row.title,
+      durationMinutes: row.duration_minutes,
+      state: row.state
+    }));
+  }
 
   async getById(context: RequestContext, lessonId: string): Promise<Lesson | null> {
     const lessonResult = await this.pool.query<LessonRow>(

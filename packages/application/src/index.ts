@@ -26,12 +26,38 @@ export interface UseCase<TCommand, TResult> {
   execute(context: RequestContext, command: TCommand): Promise<TResult>;
 }
 
+export interface CourseSummary {
+  id: string;
+  workspaceId: string;
+  version: number;
+  subject: string;
+  grade: number;
+  academicYear: string;
+  title: string;
+  sectionCount: number;
+  lessonCount: number;
+}
+
+export interface LessonSummary {
+  id: string;
+  workspaceId: string;
+  courseId: string;
+  sectionId: string;
+  version: number;
+  order: number;
+  title: string;
+  durationMinutes: number;
+  state: 'PLANNED' | 'DESIGNING' | 'READY' | 'ARCHIVED';
+}
+
 export interface CourseRepository {
+  listSummaries(context: RequestContext): Promise<CourseSummary[]>;
   getById(context: RequestContext, courseId: string): Promise<Course | null>;
   save(context: RequestContext, course: Course, options: OptimisticWriteOptions): Promise<Course>;
 }
 
 export interface LessonRepository {
+  listSummariesByCourse(context: RequestContext, courseId: string): Promise<LessonSummary[]>;
   getById(context: RequestContext, lessonId: string): Promise<Lesson | null>;
   save(context: RequestContext, lesson: Lesson, options: OptimisticWriteOptions): Promise<Lesson>;
 }
