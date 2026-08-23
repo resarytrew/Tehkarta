@@ -21,6 +21,7 @@ import {
 import type { Clock, IdGenerator } from '@tehkarta/ports';
 import { createApiApp } from './app.js';
 import { loadApiConfig } from './config.js';
+import { hashLoginPrincipal } from './security.js';
 
 const config = loadApiConfig();
 const pool = createPostgresPool(databaseConfigFromEnv());
@@ -57,6 +58,8 @@ const passwordLogin = new PasswordLoginService({
   sessions,
   throttle: loginThrottle,
   clock,
+  principalHasher: (normalizedEmail) =>
+    hashLoginPrincipal(normalizedEmail, config.authIpHashKey),
   dummyPasswordHash
 });
 
