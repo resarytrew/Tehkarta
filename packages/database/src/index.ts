@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { Pool, type PoolConfig } from 'pg';
 
 export interface DatabaseConfig {
@@ -52,16 +53,57 @@ function databaseConnectionStringFromEnv(env: NodeJS.ProcessEnv): string {
   return `postgresql://${encodeURIComponent(user!)}:${encodeURIComponent(password!)}@${host}:${port}/${encodeURIComponent(database!)}`;
 }
 
+function optionalPositiveInteger(value: string | undefined, name: string): number | undefined {
+  if (value === undefined || value === '') return undefined;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(`${name} must be a positive integer.`);
+  }
+  return parsed;
+}
+
+function databaseSslFromEnv(env: NodeJS.ProcessEnv): PoolConfig['ssl'] | undefined {
+  const mode = (env.DB_SSL ?? 'disable').trim().toLowerCase();
+  if (mode === 'disable' || mode === 'off' || mode === 'false') return undefined;
+
+  if (mode === 'require') {
+    // Encryption without CA verification. Prefer verify-full for production when
+    // TLS is enabled; private Yandex VPC connectivity may also run without TLS.
+    return { rejectUnauthorized: false };
+  }
+
+  if (mode === 'verify-full') {
+    const caPath = env.DB_SSL_CA_PATH;
+    if (!caPath) {
+      throw new Error('DB_SSL_CA_PATH is required when DB_SSL=verify-full.');
+    }
+    return {
+      rejectUnauthorized: true,
+      ca: readFileSync(caPath, 'utf8')
+    };
+  }
+
+  throw new Error('DB_SSL must be one of: disable, require, verify-full.');
+}
+
 export function databaseConfigFromEnv(env: NodeJS.ProcessEnv = process.env): DatabaseConfig {
   const config: DatabaseConfig = {
     connectionString: databaseConnectionStringFromEnv(env),
     applicationName: env.DB_APPLICATION_NAME ?? 'tehkarta-api'
   };
 
-  if (env.DB_POOL_MAX) config.maxConnections = Number(env.DB_POOL_MAX);
-  if (env.DB_STATEMENT_TIMEOUT_MS) config.statementTimeoutMs = Number(env.DB_STATEMENT_TIMEOUT_MS);
-  if (env.DB_IDLE_TIMEOUT_MS) config.idleTimeoutMs = Number(env.DB_IDLE_TIMEOUT_MS);
-  if (env.DB_SSL === 'require') config.ssl = { rejectUnauthorized: true };
+  const maxConnections = optionalPositiveInteger(env.DB_POOL_MAX, 'DB_POOL_MAX');
+  const statementTimeoutMs = optionalPositiveInteger(
+    env.DB_STATEMENT_TIMEOUT_MS,
+    'DB_STATEMENT_TIMEOUT_MS'
+  );
+  const idleTimeoutMs = optionalPositiveInteger(env.DB_IDLE_TIMEOUT_MS, 'DB_IDLE_TIMEOUT_MS');
+  const ssl = databaseSslFromEnv(env);
+
+  if (maxConnections !== undefined) config.maxConnections = maxConnections;
+  if (statementTimeoutMs !== undefined) config.statementTimeoutMs = statementTimeoutMs;
+  if (idleTimeoutMs !== undefined) config.idleTimeoutMs = idleTimeoutMs;
+  if (ssl !== undefined) config.ssl = ssl;
 
   return config;
 }
@@ -71,3 +113,4 @@ export * from './repositories/course.repository.js';
 export * from './repositories/identity.repository.js';
 export * from './repositories/lesson-invalidation.repository.js';
 export * from './repositories/lesson.repository.js';
+export * from './repositories/login-throttle.repository.js';
