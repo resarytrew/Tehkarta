@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 export interface IssuedSessionSecrets {
   sessionToken: string;
@@ -11,6 +11,7 @@ export interface SessionTokenCodec {
   issue(): IssuedSessionSecrets;
   hashSessionToken(rawToken: string): string;
   hashCsrfToken(rawToken: string): string;
+  verifyCsrfToken(rawToken: string, expectedHash: string): boolean;
 }
 
 function hash(namespace: string, value: string): string {
@@ -19,6 +20,15 @@ function hash(namespace: string, value: string): string {
     .update('\0')
     .update(value)
     .digest('hex');
+}
+
+function constantTimeHexEqual(left: string, right: string): boolean {
+  if (left.length !== right.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(left, 'hex'), Buffer.from(right, 'hex'));
+  } catch {
+    return false;
+  }
 }
 
 export class NodeSessionTokenCodec implements SessionTokenCodec {
@@ -40,5 +50,9 @@ export class NodeSessionTokenCodec implements SessionTokenCodec {
 
   hashCsrfToken(rawToken: string): string {
     return hash('tehkarta:csrf:v1', rawToken);
+  }
+
+  verifyCsrfToken(rawToken: string, expectedHash: string): boolean {
+    return constantTimeHexEqual(this.hashCsrfToken(rawToken), expectedHash);
   }
 }
