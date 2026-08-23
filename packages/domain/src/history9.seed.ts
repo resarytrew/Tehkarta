@@ -2,12 +2,16 @@ import type { Course } from './index.js';
 
 export const history9CourseSeed: Course = {
   id: 'history-9-world-modern-xix',
+  workspaceId: 'system-reference-workspace',
+  version: 1,
   subject: 'История',
   grade: 9,
   academicYear: '2026/27',
   title: 'Всеобщая история. История Нового времени. XIX — начало XX в.',
   curriculumPackId: 'curriculum-history-5-9-2026',
+  curriculumPackVersion: '1.0.0',
   contentPackId: 'umk-history-9-2026',
+  contentPackVersion: '1.0.0',
   sections: [
     {
       id: 'industrial-era',
