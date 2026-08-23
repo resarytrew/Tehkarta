@@ -46,4 +46,5 @@ export function databaseConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Dat
 
 export * from './migrate.js';
 export * from './repositories/course.repository.js';
+export * from './repositories/identity.repository.js';
 export * from './repositories/lesson.repository.js';
