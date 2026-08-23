@@ -16,6 +16,7 @@
   "dependencies": {
     "@tehkarta/application": "workspace:*",
     "@tehkarta/domain": "workspace:*",
+    "@tehkarta/identity": "workspace:*",
     "@tehkarta/ports": "workspace:*",
     "pg": "^8.13.1"
   },
