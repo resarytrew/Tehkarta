@@ -1,5 +1,12 @@
-import type { IdentityUser, PasswordCredentialRepository, SessionService, WorkspaceMembership } from './index.js';
+import type { Clock } from '@tehkarta/ports';
+import type {
+  IdentityUser,
+  PasswordCredentialRepository,
+  SessionService,
+  WorkspaceMembership
+} from './index.js';
 import { AuthenticationError, normalizeEmail } from './index.js';
+import type { LoginThrottleService } from './login-throttle.js';
 import type { PasswordVerifier } from './index.js';
 
 export interface PasswordLoginDependencies {
@@ -10,6 +17,8 @@ export interface PasswordLoginDependencies {
   credentials: PasswordCredentialRepository;
   passwords: PasswordVerifier;
   sessions: SessionService;
+  throttle: LoginThrottleService;
+  clock: Clock;
   dummyPasswordHash: string;
 }
 
@@ -17,8 +26,9 @@ export interface PasswordLoginInput {
   email: string;
   password: string;
   ttlSeconds: number;
+  principalHash: string;
+  ipHash: string;
   userAgent?: string;
-  ipHash?: string;
 }
 
 export interface PasswordLoginResult {
@@ -32,11 +42,21 @@ export interface PasswordLoginResult {
  * outcome for an unknown email, missing password credential, invalid password,
  * or inactive account. This prevents the login endpoint becoming an account
  * enumeration oracle.
+ *
+ * Expensive Argon2 verification is guarded by a persistent two-scope throttle,
+ * so horizontally scaled serverless instances share the same abuse state.
  */
 export class PasswordLoginService {
   constructor(private readonly deps: PasswordLoginDependencies) {}
 
   async login(input: PasswordLoginInput): Promise<PasswordLoginResult> {
+    const now = this.deps.clock.now();
+    const throttleKeys = {
+      principalHash: input.principalHash,
+      ipHash: input.ipHash
+    };
+    await this.deps.throttle.assertAllowed(throttleKeys, now);
+
     const normalizedEmail = normalizeEmail(input.email);
     const user = normalizedEmail
       ? await this.deps.identities.getUserByNormalizedEmail(normalizedEmail)
@@ -50,8 +70,11 @@ export class PasswordLoginService {
     );
 
     if (!user || user.status !== 'ACTIVE' || !storedHash || !verified) {
+      await this.deps.throttle.recordFailure(throttleKeys, this.deps.clock.now());
       throw new AuthenticationError('INVALID_CREDENTIALS');
     }
+
+    await this.deps.throttle.recordSuccess(throttleKeys);
 
     const memberships = (await this.deps.identities.listMemberships(user.id)).filter(
       (membership) => membership.status === 'ACTIVE'
@@ -64,10 +87,10 @@ export class PasswordLoginService {
       ipHash?: string;
     } = {
       userId: user.id,
-      ttlSeconds: input.ttlSeconds
+      ttlSeconds: input.ttlSeconds,
+      ipHash: input.ipHash
     };
     if (input.userAgent) sessionInput.userAgent = input.userAgent;
-    if (input.ipHash) sessionInput.ipHash = input.ipHash;
 
     const session = await this.deps.sessions.issueForUser(sessionInput);
     return { user, memberships, session };
