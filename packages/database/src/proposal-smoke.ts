@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import { RequestCoreDecisionAiProposal } from '@tehkarta/application';
+import { ApplicationError, RequestCoreDecisionAiProposal } from '@tehkarta/application';
 import type { Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
 import { migrateDatabase } from './migrate.js';
 import { PostgresLessonAiProposalRepository } from './repositories/ai-proposal.repository.js';
@@ -24,6 +24,9 @@ const context: RequestContext = {
   permissions: ['lesson:read', 'lesson:write']
 };
 
+const teacherInstruction =
+  'Сделай вопрос короче, но сохрани причинно-следственный характер.';
+
 try {
   const lessons = new PostgresLessonRepository(pool);
   const proposals = new PostgresLessonAiProposalRepository(pool);
@@ -44,7 +47,7 @@ try {
     action: 'IMPROVE',
     expectedLessonVersion: 3,
     candidateCount: 1,
-    teacherInstruction: 'Сделай вопрос короче, но сохрани причинно-следственный характер.',
+    teacherInstruction,
     requestKey: 'proposal-smoke-request-0001'
   });
 
@@ -84,10 +87,29 @@ try {
     action: 'IMPROVE',
     expectedLessonVersion: 3,
     candidateCount: 1,
+    teacherInstruction,
     requestKey: 'proposal-smoke-request-0001'
   });
   if (repeated.id !== proposal.id || repeated.asyncJobId !== proposal.asyncJobId) {
     throw new Error('AI proposal idempotency did not return the existing request.');
+  }
+
+  let conflictingReplayRejected = false;
+  try {
+    await requestProposal.execute(context, {
+      lessonId: 'lesson_smoke',
+      semanticKey: 'problemQuestion',
+      action: 'VARIANTS',
+      expectedLessonVersion: 3,
+      candidateCount: 3,
+      requestKey: 'proposal-smoke-request-0001'
+    });
+  } catch (error: unknown) {
+    conflictingReplayRejected =
+      error instanceof ApplicationError && error.code === 'CONFLICT';
+  }
+  if (!conflictingReplayRejected) {
+    throw new Error('Reusing an AI proposal idempotency key for a different request was not rejected.');
   }
 
   const listed = await proposals.listByLesson(context, 'lesson_smoke', 'problemQuestion');
