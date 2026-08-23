@@ -10,14 +10,19 @@ export interface DatabaseConfig {
 }
 
 export function createPostgresPool(config: DatabaseConfig): Pool {
-  return new Pool({
+  const poolConfig: PoolConfig = {
     connectionString: config.connectionString,
     max: config.maxConnections ?? 10,
     statement_timeout: config.statementTimeoutMs ?? 15_000,
     idleTimeoutMillis: config.idleTimeoutMs ?? 30_000,
-    application_name: config.applicationName ?? 'tehkarta-api',
-    ssl: config.ssl
-  });
+    application_name: config.applicationName ?? 'tehkarta-api'
+  };
+
+  if (config.ssl !== undefined) {
+    poolConfig.ssl = config.ssl;
+  }
+
+  return new Pool(poolConfig);
 }
 
 export function databaseConfigFromEnv(env: NodeJS.ProcessEnv = process.env): DatabaseConfig {
@@ -26,14 +31,17 @@ export function databaseConfigFromEnv(env: NodeJS.ProcessEnv = process.env): Dat
     throw new Error('DATABASE_URL is required.');
   }
 
-  return {
+  const config: DatabaseConfig = {
     connectionString,
-    maxConnections: env.DB_POOL_MAX ? Number(env.DB_POOL_MAX) : undefined,
-    statementTimeoutMs: env.DB_STATEMENT_TIMEOUT_MS ? Number(env.DB_STATEMENT_TIMEOUT_MS) : undefined,
-    idleTimeoutMs: env.DB_IDLE_TIMEOUT_MS ? Number(env.DB_IDLE_TIMEOUT_MS) : undefined,
-    applicationName: env.DB_APPLICATION_NAME ?? 'tehkarta-api',
-    ssl: env.DB_SSL === 'require' ? { rejectUnauthorized: true } : undefined
+    applicationName: env.DB_APPLICATION_NAME ?? 'tehkarta-api'
   };
+
+  if (env.DB_POOL_MAX) config.maxConnections = Number(env.DB_POOL_MAX);
+  if (env.DB_STATEMENT_TIMEOUT_MS) config.statementTimeoutMs = Number(env.DB_STATEMENT_TIMEOUT_MS);
+  if (env.DB_IDLE_TIMEOUT_MS) config.idleTimeoutMs = Number(env.DB_IDLE_TIMEOUT_MS);
+  if (env.DB_SSL === 'require') config.ssl = { rejectUnauthorized: true };
+
+  return config;
 }
 
 export * from './migrate.js';
