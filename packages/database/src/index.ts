@@ -67,8 +67,6 @@ function databaseSslFromEnv(env: NodeJS.ProcessEnv): PoolConfig['ssl'] | undefin
   if (mode === 'disable' || mode === 'off' || mode === 'false') return undefined;
 
   if (mode === 'require') {
-    // Encryption without CA verification. Prefer verify-full for production when
-    // TLS is enabled; private Yandex VPC connectivity may also run without TLS.
     return { rejectUnauthorized: false };
   }
 
@@ -118,3 +116,4 @@ export * from './repositories/identity.repository.js';
 export * from './repositories/lesson-invalidation.repository.js';
 export * from './repositories/lesson.repository.js';
 export * from './repositories/login-throttle.repository.js';
+export * from './repositories/methodology-feedback.repository.js';
