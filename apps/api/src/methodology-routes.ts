@@ -10,7 +10,7 @@ import {
   type MethodologyFeedbackRepository,
   type CoursePlanningRepository
 } from '@tehkarta/application';
-import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
+import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext, Telemetry } from '@tehkarta/ports';
 import {
   requestContextFromPrincipal,
   requireCsrf,
@@ -27,6 +27,7 @@ export interface MethodologyRouteDependencies {
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
+  telemetry?: Telemetry;
 }
 
 function positiveInteger(value: unknown, fieldName: string): number {
@@ -65,7 +66,8 @@ export async function registerMethodologyRoutes(
     dependencies.lessons,
     dependencies.feedback,
     undefined,
-    dependencies.planning
+    dependencies.planning,
+    dependencies.telemetry
   );
   const addOutcome = new AddApprovedLessonOutcome({
     lessons: dependencies.lessons,
@@ -78,13 +80,15 @@ export async function registerMethodologyRoutes(
     invalidations: dependencies.invalidations,
     clock: dependencies.clock,
     ids: dependencies.ids,
-    ...(dependencies.planning ? { planning: dependencies.planning } : {})
+    ...(dependencies.planning ? { planning: dependencies.planning } : {}),
+    ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {})
   });
   const reject = new RejectMethodologyRecommendation({
     lessons: dependencies.lessons,
     feedback: dependencies.feedback,
     clock: dependencies.clock,
-    ...(dependencies.planning ? { planning: dependencies.planning } : {})
+    ...(dependencies.planning ? { planning: dependencies.planning } : {}),
+    ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {})
   });
 
   app.get<{ Params: { lessonId: string } }>(
@@ -116,7 +120,7 @@ export async function registerMethodologyRoutes(
 
   app.post<{
     Params: { lessonId: string; recommendationId: string };
-    Body: { expectedLessonVersion?: unknown; formId?: unknown; techniqueIds?: unknown };
+    Body: { expectedLessonVersion?: unknown; methodId?: unknown; formId?: unknown; techniqueIds?: unknown };
   }>(
     '/api/v1/lessons/:lessonId/methodology/recommendations/:recommendationId/use',
     async (request) => {
@@ -131,6 +135,7 @@ export async function registerMethodologyRoutes(
       const result = await apply.execute(context, {
         lessonId: request.params.lessonId,
         recommendationId: nonEmptyId(request.params.recommendationId, 'recommendationId'),
+        methodId: nonEmptyId(request.body?.methodId, 'methodId'),
         formId: nonEmptyId(request.body?.formId, 'formId'),
         expectedLessonVersion: positiveInteger(request.body?.expectedLessonVersion, 'expectedLessonVersion'),
         ...(techniqueIds !== undefined ? { techniqueIds: techniqueIds as string[] } : {})

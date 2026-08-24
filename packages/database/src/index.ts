@@ -119,5 +119,6 @@ export * from './repositories/identity.repository.js';
 export * from './repositories/lesson-invalidation.repository.js';
 export * from './repositories/lesson.repository.js';
 export * from './repositories/lesson-design-artifact.repository.js';
+export * from './repositories/knowledge-space.repository.js';
 export * from './repositories/login-throttle.repository.js';
 export * from './repositories/methodology-feedback.repository.js';

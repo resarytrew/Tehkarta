@@ -1,5 +1,6 @@
-import type { RequestContext } from '@tehkarta/ports';
+import type { RequestContext, Telemetry } from '@tehkarta/ports';
 import { ApplicationError, type LessonRepository } from './index.js';
+import type { ApprovedScenarioContext } from './scenario-context.js';
 
 export type LessonDesignArtifactKind = 'SCENARIO' | 'MATERIALS';
 
@@ -51,9 +52,81 @@ function validateScenario(payload: Readonly<Record<string, unknown>>): void {
     text(item.title, `stages[${index}].title`, 300);
     text(item.teacherAction, `stages[${index}].teacherAction`);
     text(item.studentAction, `stages[${index}].studentAction`);
+    if (!Array.isArray(item.technologyPhaseIds) || item.technologyPhaseIds.some((id) => typeof id !== 'string' || !id.trim())) {
+      throw new ApplicationError('VALIDATION_FAILED', `stages[${index}].technologyPhaseIds must be an array of phase ids.`);
+    }
     if (!Number.isInteger(item.minutes) || Number(item.minutes) < 1 || Number(item.minutes) > 120) {
       throw new ApplicationError('VALIDATION_FAILED', `stages[${index}].minutes is invalid.`);
     }
+  }
+}
+
+function assertGroundingMetadata(payload: Readonly<Record<string, unknown>>, approved: ApprovedScenarioContext): void {
+  const technology = approved.methodology.technology;
+  if (!technology || approved.methodology.technologyRevision === undefined || !approved.methodology.pedagogicalProfileRevision) {
+    throw new ApplicationError('DEPENDENCY_STALE', 'Approved pedagogical context is incomplete.');
+  }
+  const expected: Record<string, string | number> = {
+    generatedFromLessonVersion: approved.lesson.version,
+    technologyId: technology.technologyId,
+    methodologyPackId: technology.methodologyPackId,
+    methodologyPackVersion: technology.methodologyPackVersion,
+    technologyRevision: approved.methodology.technologyRevision,
+    pedagogicalProfileRevision: approved.methodology.pedagogicalProfileRevision
+  };
+  for (const [key, value] of Object.entries(expected)) {
+    if (payload[key] !== value) {
+      throw new ApplicationError('DEPENDENCY_STALE', `Artifact was generated from stale ${key}.`, { key, expected: value, actual: payload[key] });
+    }
+  }
+  if (approved.coursePlanning && payload.generatedFromCourseContextRevision !== approved.coursePlanning.contextRevision) {
+    throw new ApplicationError('DEPENDENCY_STALE', 'Artifact was generated from a stale course context.', {
+      expected: approved.coursePlanning.contextRevision,
+      actual: payload.generatedFromCourseContextRevision
+    });
+  }
+}
+
+export function validateScenarioAgainstApprovedContext(
+  payload: Readonly<Record<string, unknown>>,
+  approved: ApprovedScenarioContext
+): void {
+  if (!approved.readiness.canGenerateScenario) {
+    throw new ApplicationError('DEPENDENCY_STALE', 'Scenario prerequisites are not approved.', { missing: approved.readiness.missing });
+  }
+  assertGroundingMetadata(payload, approved);
+  const stages = payload.stages as Array<Record<string, unknown>>;
+  const totalMinutes = stages.reduce((sum, stage) => sum + Number(stage.minutes), 0);
+  if (totalMinutes !== approved.lesson.durationMinutes) {
+    throw new ApplicationError('VALIDATION_FAILED', `Scenario duration must equal ${approved.lesson.durationMinutes} minutes.`, { totalMinutes });
+  }
+  const knownPhases = new Set(approved.methodology.canonicalPhases.map((phase) => phase.id));
+  const covered = new Set<string>();
+  for (const stage of stages) {
+    for (const phaseId of stage.technologyPhaseIds as string[]) {
+      if (!knownPhases.has(phaseId)) {
+        throw new ApplicationError('VALIDATION_FAILED', `Scenario references unknown technology phase ${phaseId}.`);
+      }
+      covered.add(phaseId);
+    }
+  }
+  const missingPhases = [...knownPhases].filter((phaseId) => !covered.has(phaseId));
+  if (missingPhases.length > 0) {
+    throw new ApplicationError('VALIDATION_FAILED', 'Scenario does not cover every canonical technology phase.', { missingPhases });
+  }
+}
+
+export function validateMaterialsAgainstApprovedContext(
+  payload: Readonly<Record<string, unknown>>,
+  approved: ApprovedScenarioContext,
+  scenario: LessonDesignArtifact | undefined
+): void {
+  assertGroundingMetadata(payload, approved);
+  if (!scenario || payload.generatedFromScenarioRevision !== scenario.revision) {
+    throw new ApplicationError('DEPENDENCY_STALE', 'Materials must be generated from the current scenario revision.', {
+      expected: scenario?.revision ?? null,
+      actual: payload.generatedFromScenarioRevision
+    });
   }
 }
 
@@ -88,8 +161,10 @@ export class SaveLessonDesignArtifact {
     private readonly deps: {
       lessons: LessonRepository;
       artifacts: LessonDesignArtifactRepository;
+      buildApprovedContext?(context: RequestContext, lessonId: string): Promise<ApprovedScenarioContext>;
       now(): Date;
       generateId(prefix: string): string;
+      telemetry?: Telemetry;
     }
   ) {}
 
@@ -109,7 +184,17 @@ export class SaveLessonDesignArtifact {
       throw new ApplicationError('STALE_VERSION', 'Lesson changed while the artifact was edited.');
     }
     validateLessonDesignArtifact(input.kind, input.payload);
-    return this.deps.artifacts.save(context, {
+    if (this.deps.buildApprovedContext) {
+      const approved = await this.deps.buildApprovedContext(context, input.lessonId);
+      if (input.kind === 'SCENARIO') {
+        validateScenarioAgainstApprovedContext(input.payload, approved);
+      } else {
+        const current = await this.deps.artifacts.list(context, input.lessonId);
+        validateMaterialsAgainstApprovedContext(input.payload, approved, current.find((item) => item.kind === 'SCENARIO'));
+      }
+    }
+    const existing = input.kind === 'SCENARIO' ? await this.deps.artifacts.list(context,input.lessonId) : [];
+    const saved = await this.deps.artifacts.save(context, {
       id: this.deps.generateId('artifact'),
       lessonId: input.lessonId,
       kind: input.kind,
@@ -118,5 +203,7 @@ export class SaveLessonDesignArtifact {
       actorUserId: context.actorUserId,
       at: this.deps.now().toISOString()
     });
+    if(input.kind==='SCENARIO')this.deps.telemetry?.increment(existing.some((item)=>item.kind==='SCENARIO')?'lesson.scenario.regenerated':'lesson.scenario.generated',1,{technologyId:String(input.payload.technologyId??'unknown'),packId:String(input.payload.methodologyPackId??'unknown'),packVersion:String(input.payload.methodologyPackVersion??'unknown')});
+    return saved;
   }
 }

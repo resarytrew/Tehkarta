@@ -31,6 +31,7 @@ interface CourseRow {
   curriculum_pack_version: string;
   content_pack_id: string;
   content_pack_version: string;
+  knowledge_space_id: string | null;
 }
 
 interface SectionRow {
@@ -90,7 +91,7 @@ export class PostgresCourseRepository implements CourseRepository {
     const courseResult = await this.pool.query<CourseRow>(
       `SELECT id, workspace_id, version, subject, grade, academic_year, title,
               curriculum_pack_id, curriculum_pack_version,
-              content_pack_id, content_pack_version
+              content_pack_id, content_pack_version, knowledge_space_id
        FROM courses
        WHERE id = $1 AND workspace_id = $2 AND archived_at IS NULL`,
       [courseId, context.workspaceId]
@@ -166,6 +167,7 @@ export class PostgresCourseRepository implements CourseRepository {
       curriculumPackVersion: courseRow.curriculum_pack_version,
       contentPackId: courseRow.content_pack_id,
       contentPackVersion: courseRow.content_pack_version,
+      ...(courseRow.knowledge_space_id ? { knowledgeSpaceId: courseRow.knowledge_space_id } : {}),
       sections
     };
   }
@@ -188,6 +190,7 @@ export class PostgresCourseRepository implements CourseRepository {
              subject = $2,
              grade = $3,
              academic_year = $4,
+             knowledge_space_id = $8,
              version = version + 1,
              updated_at = now()
          WHERE id = $5 AND workspace_id = $6 AND version = $7 AND archived_at IS NULL
@@ -199,7 +202,8 @@ export class PostgresCourseRepository implements CourseRepository {
           course.academicYear,
           course.id,
           context.workspaceId,
-          options.expectedVersion
+          options.expectedVersion,
+          course.knowledgeSpaceId ?? null
         ]
       );
 

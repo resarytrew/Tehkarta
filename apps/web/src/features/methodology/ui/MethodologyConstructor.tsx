@@ -76,6 +76,9 @@ export function MethodologyConstructor({
 
   const approvedOutcomes = useMemo(() => approvedValues(lesson.outcomes), [lesson.outcomes]);
   const recommendations = bundle?.recommendations ?? [];
+  const profileRevision = [lesson.pedagogicalProfile.style?.meta.revision ?? 0, lesson.pedagogicalProfile.communicationTone?.meta.revision ?? 0, lesson.pedagogicalProfile.focus?.meta.revision ?? 0].join('-');
+  const currentMethodIds = new Set(lesson.selectedMethods.filter((field) => field.meta.status === 'APPROVED' && bundle && field.value.methodologyPackId === bundle.pack.id && field.value.methodologyPackVersion === bundle.pack.version && field.value.technologyRevision === bundle.technologyRevision && field.value.pedagogicalProfileRevision === profileRevision).map((field) => field.value.methodId));
+  const methodologyReady = currentMethodIds.size > 0 && lesson.selectedForms.some((field) => field.meta.status === 'APPROVED' && currentMethodIds.has(field.value.methodId));
 
   async function submitOutcome(): Promise<void> {
     const value = outcomeDraft.trim();
@@ -122,9 +125,9 @@ export function MethodologyConstructor({
   }
 
   return (
-    <section className="methodology-constructor" aria-labelledby="methodology-title">
+    <section className="methodology-method-selection" aria-labelledby="methodology-title">
       <div className="section-intro methodology-intro">
-        <span className="eyebrow">Шаг 3 · методический конструктор</span>
+        <span className="eyebrow">3.5–3.7 · метод, приёмы и форма</span>
         <h2 id="methodology-title">Методы под утверждённый результат</h2>
         <p>
           Платформа сопоставляет только утверждённые педагогом результаты урока с фазами
@@ -230,6 +233,10 @@ export function MethodologyConstructor({
           const selectedForm = recommendation.compatibleForms.find(
             (form) => form.id === choice.formId
           );
+          const selectedTechniqueMinutes = recommendation.suggestedTechniques
+            .filter((technique) => choice.techniqueIds.includes(technique.id))
+            .reduce((sum, technique) => sum + technique.typicalMinutes.max, 0);
+          const timeRisk = recommendation.estimatedMinutes.max + selectedTechniqueMinutes > Math.floor(lesson.durationMinutes * 0.65);
 
           return (
             <article className="methodology-card" key={recommendation.id}>
@@ -243,6 +250,8 @@ export function MethodologyConstructor({
                   {recommendation.estimatedMinutes.min}–{recommendation.estimatedMinutes.max} мин
                 </div>
               </div>
+
+              {timeRisk ? <div className="workflow-warning"><strong>Риск перегрузки по времени</strong><p>Метод и выбранные приёмы могут занять до {recommendation.estimatedMinutes.max + selectedTechniqueMinutes} минут. Оставьте время на постановку задачи, вывод и рефлексию.</p></div> : null}
 
               <div className="methodology-card__outcome">
                 <span>Основание рекомендации</span>
@@ -415,7 +424,7 @@ export function MethodologyConstructor({
               <strong>
                 {lesson.selectedMethods
                   .filter((field) => field.meta.status === 'APPROVED')
-                  .map((field) => field.value)
+                  .map((field) => field.value.name)
                   .join(', ') || '—'}
               </strong>
             </div>
@@ -424,7 +433,7 @@ export function MethodologyConstructor({
               <strong>
                 {lesson.selectedTechniques
                   .filter((field) => field.meta.status === 'APPROVED')
-                  .map((field) => field.value)
+                  .map((field) => field.value.name)
                   .join(', ') || '—'}
               </strong>
             </div>
@@ -433,7 +442,7 @@ export function MethodologyConstructor({
               <strong>
                 {lesson.selectedForms
                   .filter((field) => field.meta.status === 'APPROVED')
-                  .map((field) => field.value)
+                  .map((field) => field.value.name)
                   .join(', ') || '—'}
               </strong>
             </div>
@@ -449,7 +458,7 @@ export function MethodologyConstructor({
             {lesson.selectedMethods.filter((field) => field.meta.status === 'APPROVED').length}.
           </p>
         </div>
-        <button className="button button-primary" type="button" onClick={onNext}>
+        <button className="button button-primary" type="button" disabled={!methodologyReady} onClick={onNext}>
           Перейти к содержанию УМК →
         </button>
       </div>

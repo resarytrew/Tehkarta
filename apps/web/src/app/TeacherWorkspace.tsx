@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { logout } from '../shared/auth/sessionApi.js';
 import { useSessionActions } from '../shared/auth/SessionActions.js';
 import { useApiClient } from '../shared/api/ApiProvider.js';
@@ -11,6 +11,7 @@ import { CourseSidebar } from './CourseSidebar.js';
 import { useCourseWorkspace } from './useCourseWorkspace.js';
 import { useWorkspaceCatalog } from './useWorkspaceCatalog.js';
 import { useWorkspaceSelection } from './useWorkspaceSelection.js';
+import { KnowledgeSpacePanel } from '../features/knowledge-space/ui/KnowledgeSpacePanel.js';
 
 export function TeacherWorkspace() {
   const api = useApiClient();
@@ -22,6 +23,7 @@ export function TeacherWorkspace() {
   const fallbackCourseId = selectedCourseExists ? selection.selectedCourseId : catalog.courses[0]?.id ?? null;
   const courseWorkspace = useCourseWorkspace(fallbackCourseId);
   const planning = useCoursePlanning(fallbackCourseId);
+  const [knowledgeAdminActive, setKnowledgeAdminActive] = useState(false);
 
   useEffect(() => {
     if (!catalog.loading && fallbackCourseId && fallbackCourseId !== selection.selectedCourseId) {
@@ -53,6 +55,7 @@ export function TeacherWorkspace() {
       notifications.warning('Сначала сохраните и утвердите план курса и хотя бы один источник.');
       return;
     }
+    setKnowledgeAdminActive(false);
     selection.selectLesson(fallbackCourseId, lessonId);
   }
 
@@ -66,7 +69,8 @@ export function TeacherWorkspace() {
   }
 
   const course = courseWorkspace.course;
-  const showCoursePlanning = !selection.selectedLessonId;
+  const showCoursePlanning = !selection.selectedLessonId && !knowledgeAdminActive;
+  const knowledgeAdminAvailable = catalog.me?.workspace.role === 'OWNER' || catalog.me?.workspace.role === 'ADMIN' || catalog.me?.workspace.permissions.includes('knowledge:write') === true;
   return (
     <AppShell
       me={catalog.me}
@@ -74,9 +78,9 @@ export function TeacherWorkspace() {
       loading={catalog.loading || courseWorkspace.loading || planning.loading}
       error={courseWorkspace.error}
       onSignOut={() => void signOut()}
-      sidebar={<CourseSidebar courses={catalog.courses} selectedCourseId={course?.id ?? fallbackCourseId} course={course} lessons={courseWorkspace.lessons} selectedLessonId={showCoursePlanning ? null : selection.selectedLessonId} onSelectCourse={selection.selectCourse} onSelectLesson={openLesson} onOpenCoursePlan={selection.clearLessonSelection} coursePlanActive={showCoursePlanning} />}
+      sidebar={<CourseSidebar courses={catalog.courses} selectedCourseId={course?.id ?? fallbackCourseId} course={course} lessons={courseWorkspace.lessons} selectedLessonId={showCoursePlanning ? null : selection.selectedLessonId} onSelectCourse={(courseId)=>{setKnowledgeAdminActive(false);selection.selectCourse(courseId);}} onSelectLesson={openLesson} onOpenCoursePlan={()=>{setKnowledgeAdminActive(false);selection.clearLessonSelection();}} coursePlanActive={showCoursePlanning} knowledgeAdminAvailable={knowledgeAdminAvailable} knowledgeAdminActive={knowledgeAdminActive} onOpenKnowledgeAdmin={()=>{selection.clearLessonSelection();setKnowledgeAdminActive(true);}} />}
     >
-      {showCoursePlanning && course && planning.snapshot ? (
+      {knowledgeAdminActive ? <KnowledgeSpacePanel course={course} onCourseLinked={courseWorkspace.refresh} /> : showCoursePlanning && course && planning.snapshot ? (
         <CoursePlanningPanel
           key={`${course.id}:${planning.snapshot.plan?.revision ?? 0}:${planning.snapshot.sources.length}`}
           course={course}

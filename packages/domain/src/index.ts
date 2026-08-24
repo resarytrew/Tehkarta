@@ -20,13 +20,13 @@ export interface GovernedField<T> {
   meta: RevisionMeta;
 }
 
-export interface PedagogicalProfile {
-  creed?: GovernedField<string>;
-  style?: GovernedField<string>;
-  communicationTone?: GovernedField<string>;
-  focus?: GovernedField<string>;
-  technology?: GovernedField<string>;
-}
+import type {
+  MethodSelection,
+  OrganizationalFormSelection,
+  PedagogicalProfile,
+  PedagogicalTechnologySelection,
+  TechniqueSelection
+} from './pedagogy.js';
 
 export type DesignMode = 'REGULATED' | 'BALANCED' | 'CREATIVE';
 export type ContentFreedom = 'TEXTBOOK_STRICT' | 'TEXTBOOK_PLUS' | 'EXPANDED';
@@ -78,6 +78,7 @@ export interface Course {
   curriculumPackVersion: string;
   contentPackId: string;
   contentPackVersion: string;
+  knowledgeSpaceId?: string;
   sections: Section[];
 }
 
@@ -99,14 +100,15 @@ export interface Lesson {
   title: string;
   durationMinutes: number;
   pedagogicalProfile: PedagogicalProfile;
+  pedagogicalTechnology?: GovernedField<PedagogicalTechnologySelection>;
   designFreedom: DesignFreedom;
   goal?: GovernedField<string>;
   problemQuestion?: GovernedField<string>;
   bigIdea?: GovernedField<string>;
   outcomes: GovernedField<string>[];
-  selectedMethods: GovernedField<string>[];
-  selectedTechniques: GovernedField<string>[];
-  selectedForms: GovernedField<string>[];
+  selectedMethods: GovernedField<MethodSelection>[];
+  selectedTechniques: GovernedField<TechniqueSelection>[];
+  selectedForms: GovernedField<OrganizationalFormSelection>[];
   contentItems: GovernedField<string>[];
 }
 
@@ -201,3 +203,5 @@ export function replaceWithAiProposal<T>(
 export * from './dependencies.js';
 export * from './history9.seed.js';
 export * from './methodology.js';
+export * from './methodology-registry.js';
+export * from './pedagogy.js';

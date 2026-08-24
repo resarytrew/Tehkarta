@@ -20,6 +20,7 @@ export function addApprovedOutcome(api: ApiClient, input: { lessonId: string; va
 export function useMethodologyRecommendation(api: ApiClient, input: {
   lessonId: string;
   recommendationId: string;
+  methodId: string;
   formId: string;
   techniqueIds: string[];
   expectedLessonVersion: number;
@@ -28,6 +29,7 @@ export function useMethodologyRecommendation(api: ApiClient, input: {
     `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/methodology/recommendations/${encodeURIComponent(input.recommendationId)}/use`,
     { method: 'POST', body: JSON.stringify({
       expectedLessonVersion: input.expectedLessonVersion,
+      methodId: input.methodId,
       formId: input.formId,
       techniqueIds: input.techniqueIds
     }) },

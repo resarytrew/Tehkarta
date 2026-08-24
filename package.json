@@ -7,7 +7,7 @@
     "dev": "pnpm build:packages && pnpm --parallel --filter @tehkarta/api --filter @tehkarta/web dev",
     "worker:dev": "pnpm build:packages && pnpm --filter @tehkarta/worker dev",
     "worker:once": "pnpm build:packages && pnpm --filter @tehkarta/worker once",
-    "build:packages": "pnpm -r --filter './packages/**' build",
+    "build:packages": "pnpm --filter @tehkarta/domain --filter @tehkarta/ports --filter @tehkarta/application --filter @tehkarta/identity --filter @tehkarta/ai --filter @tehkarta/database build",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",

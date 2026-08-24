@@ -21,7 +21,14 @@ test('readiness marks scenario and downstream steps stale after lesson version c
     goal: approvedField('Цель', 'goal'),
     problemQuestion: approvedField('Вопрос', 'question'),
     bigIdea: approvedField('Идея', 'idea'),
-    selectedMethods: [approvedField('Исследовательский метод', 'method')]
+    pedagogicalProfile: {
+      style: approvedField('CONSTRUCTIVIST' as const, 'profile-style'),
+      communicationTone: approvedField('SUPPORTIVE' as const, 'profile-tone'),
+      focus: approvedField('DEPTH' as const, 'profile-focus')
+    },
+    pedagogicalTechnology: approvedField({ technologyId: 'inquiry', name: 'Исследовательское обучение', methodologyPackId: 'research-v1', methodologyPackVersion: '1.0.0' }, 'technology'),
+    selectedMethods: [approvedField({ methodId: 'inquiry-method', name: 'Исследовательский метод', technologyId: 'inquiry', methodologyPackId: 'research-v1', methodologyPackVersion: '1.0.0', targetOutcomeFieldId: 'outcome', targetOutcomeRevision: 1, technologyRevision: 1, pedagogicalProfileRevision: '1-1-1' }, 'method')],
+    selectedForms: [approvedField({ formId: 'groups', name: 'Групповая работа', methodId: 'inquiry-method', methodologyPackId: 'research-v1', methodologyPackVersion: '1.0.0' }, 'form')]
   });
   const content = {
     lessonId: lesson.id, courseId: lesson.courseId, contentMode: 'TEXTBOOK_PLUS' as const,

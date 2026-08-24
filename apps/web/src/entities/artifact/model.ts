@@ -1,5 +1,12 @@
 import type { ApprovedCourseLessonContext } from '../course/model.js';
 import type { LessonContentContext } from '../content/model.js';
+import type {
+  ApprovedPedagogicalProfile,
+  MethodSelection,
+  OrganizationalFormSelection,
+  PedagogicalTechnologySelection,
+  TechniqueSelection
+} from '@tehkarta/domain';
 
 export type LessonDesignArtifactKind = 'SCENARIO' | 'MATERIALS';
 
@@ -21,6 +28,7 @@ export interface ScenarioStage {
   minutes: number;
   teacherAction: string;
   studentAction: string;
+  technologyPhaseIds: string[];
 }
 
 export interface ScenarioPayload extends Record<string, unknown> {
@@ -28,6 +36,11 @@ export interface ScenarioPayload extends Record<string, unknown> {
   generatedFromLessonVersion?: number;
   generatedFromCoursePlanRevision?: number;
   generatedFromCourseContextRevision?: string;
+  technologyId?: string;
+  methodologyPackId?: string;
+  methodologyPackVersion?: string;
+  technologyRevision?: number;
+  pedagogicalProfileRevision?: string;
 }
 
 export interface LessonMaterialItem {
@@ -44,6 +57,11 @@ export interface MaterialsPayload extends Record<string, unknown> {
   generatedFromScenarioRevision?: number;
   generatedFromCoursePlanRevision?: number;
   generatedFromCourseContextRevision?: string;
+  technologyId?: string;
+  methodologyPackId?: string;
+  methodologyPackVersion?: string;
+  technologyRevision?: number;
+  pedagogicalProfileRevision?: string;
 }
 
 export interface ApprovedScenarioContext {
@@ -59,7 +77,19 @@ export interface ApprovedScenarioContext {
   };
   concept: { goal?: string; problemQuestion?: string; bigIdea?: string };
   outcomes: string[];
-  methodology: { methods: string[]; techniques: string[]; forms: string[] };
+  pedagogicalProfile?: ApprovedPedagogicalProfile;
+  methodology: {
+    technology?: PedagogicalTechnologySelection;
+    technologyRevision?: number;
+    pedagogicalProfileRevision?: string;
+    canonicalPhases: Array<{ id: string; title: string; purpose: string }>;
+    methods: string[];
+    techniques: string[];
+    forms: string[];
+    methodSelections: MethodSelection[];
+    techniqueSelections: TechniqueSelection[];
+    formSelections: OrganizationalFormSelection[];
+  };
   content: {
     mandatoryRp: LessonContentContext['curriculumRequirements'];
     includedUmk: LessonContentContext['umkEvidence'];

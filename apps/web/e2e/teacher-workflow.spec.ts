@@ -48,6 +48,19 @@ test('critical teacher-authoritative lesson flow', async ({ page }) => {
   await expect(decision.getByText(/Утверждено педагогом/)).toBeVisible();
 
   await page.getByRole('button', { name: /03.*Методический конструктор/ }).click();
+  for (const profileDecision of await page.locator('.pedagogy-decision').all()) {
+    if (!(await profileDecision.getByText('Утверждено').isVisible().catch(() => false))) {
+      await profileDecision.locator('.pedagogy-option').first().click();
+      await profileDecision.getByRole('button', { name: 'Сохранить' }).click();
+      await profileDecision.getByRole('button', { name: 'Утвердить' }).click();
+      await expect(profileDecision.getByText('Утверждено')).toBeVisible();
+    }
+  }
+  const selectedTechnology = page.locator('.technology-card.is-selected');
+  if (!(await selectedTechnology.isVisible().catch(() => false))) {
+    await page.locator('.technology-card').first().getByRole('button', { name: 'Выбрать и утвердить' }).click();
+  }
+  await expect(page.getByRole('heading', { name: 'Методы под утверждённый результат' })).toBeVisible();
   const methodUse = page.getByRole('button', { name: '✓ Использовать' }).first();
   if (await methodUse.isVisible().catch(() => false)) await methodUse.click();
   await page.getByRole('button', { name: /Перейти к содержанию/ }).click();

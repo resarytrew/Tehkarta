@@ -10,6 +10,7 @@ import { listAiProposals } from '../../ai-proposals/api/aiProposalApi.js';
 import { getLessonContentContext } from '../../content-selection/api/contentApi.js';
 import { getMethodologyRecommendations } from '../../methodology/api/methodologyApi.js';
 import { useApiClient } from '../../../shared/api/ApiProvider.js';
+import { ApiRequestError } from '../../../shared/api/ApiClient.js';
 import { useApiErrorRecovery } from '../../../shared/errors/useApiErrorRecovery.js';
 
 function proposalFirst(current: LessonAiProposal[], proposal: LessonAiProposal): LessonAiProposal[] {
@@ -29,6 +30,17 @@ export function useLessonWorkspace(lessonId: string) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadMethodology = useCallback(async (): Promise<MethodologyRecommendationBundle | null> => {
+    try {
+      return await getMethodologyRecommendations(api, lessonId);
+    } catch (cause) {
+      if (cause instanceof ApiRequestError && cause.status === 409 && cause.payload.code === 'DEPENDENCY_STALE') {
+        return null;
+      }
+      throw cause;
+    }
+  }, [api, lessonId]);
+
   const refreshAll = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -37,7 +49,7 @@ export function useLessonWorkspace(lessonId: string) {
         getLesson(api, lessonId),
         listInvalidations(api, lessonId),
         listAiProposals(api, lessonId),
-        getMethodologyRecommendations(api, lessonId),
+        loadMethodology(),
         getLessonContentContext(api, lessonId),
         getScenarioContext(api, lessonId),
         listDesignArtifacts(api, lessonId)
@@ -53,7 +65,7 @@ export function useLessonWorkspace(lessonId: string) {
       const classified = await recover(cause);
       setError(classified.message);
     } finally { setLoading(false); }
-  }, [api, lessonId, recover]);
+  }, [api, lessonId, loadMethodology, recover]);
 
   useEffect(() => { void refreshAll(); }, [refreshAll]);
 
@@ -66,8 +78,8 @@ export function useLessonWorkspace(lessonId: string) {
     setInvalidations(nextInvalidations);
   }, [api, lessonId]);
   const refreshMethodology = useCallback(async () => {
-    setMethodology(await getMethodologyRecommendations(api, lessonId));
-  }, [api, lessonId]);
+    setMethodology(await loadMethodology());
+  }, [loadMethodology]);
   const refreshProposals = useCallback(async () => {
     setProposals(await listAiProposals(api, lessonId));
   }, [api, lessonId]);

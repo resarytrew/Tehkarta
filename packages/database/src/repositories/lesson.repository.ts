@@ -4,10 +4,17 @@ import type {
   DesignFreedom,
   GovernedField,
   Lesson,
+  MethodSelection,
+  OrganizationalFormSelection,
   PedagogicalProfile,
+  PedagogicalTechnologySelection,
   RevisionMeta,
   ValueSource,
-  ApprovalStatus
+  ApprovalStatus,
+  TechniqueSelection,
+  PedagogicalStyle,
+  CommunicationTone,
+  PedagogicalFocus
 } from '@tehkarta/domain';
 import type { OptimisticWriteOptions, RequestContext } from '@tehkarta/ports';
 import type { Pool, PoolClient } from 'pg';
@@ -84,6 +91,16 @@ function stringField(field: GovernedField<unknown> | undefined): GovernedField<s
   return field as GovernedField<string>;
 }
 
+function objectField<T>(field: GovernedField<unknown> | undefined): GovernedField<T> | undefined {
+  if (!field || !field.value || typeof field.value !== 'object' || Array.isArray(field.value)) return undefined;
+  return field as GovernedField<T>;
+}
+
+function enumField<T extends string>(field: GovernedField<unknown> | undefined, allowed: ReadonlySet<string>): GovernedField<T> | undefined {
+  if (!field || typeof field.value !== 'string' || !allowed.has(field.value)) return undefined;
+  return field as GovernedField<T>;
+}
+
 function listOfStrings(items: DecisionProjection[], semanticKey: string): GovernedField<string>[] {
   return items
     .filter((item) => item.semanticKey === semanticKey && typeof item.field.value === 'string')
@@ -91,20 +108,27 @@ function listOfStrings(items: DecisionProjection[], semanticKey: string): Govern
     .map((item) => item.field as GovernedField<string>);
 }
 
+function listOfObjects<T>(items: DecisionProjection[], semanticKey: string): GovernedField<T>[] {
+  return items
+    .filter((item) => item.semanticKey === semanticKey && item.field.value !== null && typeof item.field.value === 'object' && !Array.isArray(item.field.value))
+    .sort((a, b) => a.ordinal - b.ordinal)
+    .map((item) => item.field as GovernedField<T>);
+}
+
 function allGovernedFields(lesson: Lesson): Array<{
   semanticKey: string;
   itemKey: string;
   ordinal: number;
-  field: GovernedField<string>;
+  field: GovernedField<unknown>;
 }> {
   const result: Array<{
     semanticKey: string;
     itemKey: string;
     ordinal: number;
-    field: GovernedField<string>;
+    field: GovernedField<unknown>;
   }> = [];
 
-  const pushSingle = (semanticKey: string, field?: GovernedField<string>) => {
+  const pushSingle = (semanticKey: string, field?: GovernedField<unknown>) => {
     if (field) result.push({ semanticKey, itemKey: 'single', ordinal: 0, field });
   };
 
@@ -112,12 +136,12 @@ function allGovernedFields(lesson: Lesson): Array<{
   pushSingle('profile.style', lesson.pedagogicalProfile.style);
   pushSingle('profile.communicationTone', lesson.pedagogicalProfile.communicationTone);
   pushSingle('profile.focus', lesson.pedagogicalProfile.focus);
-  pushSingle('profile.technology', lesson.pedagogicalProfile.technology);
+  pushSingle('pedagogicalTechnology', lesson.pedagogicalTechnology);
   pushSingle('goal', lesson.goal);
   pushSingle('problemQuestion', lesson.problemQuestion);
   pushSingle('bigIdea', lesson.bigIdea);
 
-  const pushList = (semanticKey: string, fields: GovernedField<string>[]) => {
+  const pushList = (semanticKey: string, fields: GovernedField<unknown>[]) => {
     fields.forEach((field, ordinal) => {
       result.push({ semanticKey, itemKey: field.fieldId, ordinal, field });
     });
@@ -275,15 +299,14 @@ export class PostgresLessonRepository implements LessonRepository {
 
     const pedagogicalProfile: PedagogicalProfile = {};
     const creed = single('profile.creed');
-    const style = single('profile.style');
-    const communicationTone = single('profile.communicationTone');
-    const focus = single('profile.focus');
-    const technology = single('profile.technology');
+    const style = enumField<PedagogicalStyle>(projected.find((item) => item.semanticKey === 'profile.style')?.field, new Set(['CLASSICAL','CONSTRUCTIVIST','HUMANISTIC','GAME_BASED']));
+    const communicationTone = enumField<CommunicationTone>(projected.find((item) => item.semanticKey === 'profile.communicationTone')?.field, new Set(['ACADEMIC','SUPPORTIVE','DIRECT','CREATIVE']));
+    const focus = enumField<PedagogicalFocus>(projected.find((item) => item.semanticKey === 'profile.focus')?.field, new Set(['ENGAGEMENT','DEPTH','META_SKILLS','PRACTICAL_APPLICATION']));
     if (creed) pedagogicalProfile.creed = creed;
     if (style) pedagogicalProfile.style = style;
     if (communicationTone) pedagogicalProfile.communicationTone = communicationTone;
     if (focus) pedagogicalProfile.focus = focus;
-    if (technology) pedagogicalProfile.technology = technology;
+    const pedagogicalTechnology = objectField<PedagogicalTechnologySelection>(projected.find((item) => item.semanticKey === 'pedagogicalTechnology')?.field);
 
     const lesson: Lesson = {
       id: row.id,
@@ -301,9 +324,9 @@ export class PostgresLessonRepository implements LessonRepository {
         methodFreedom: row.method_freedom
       },
       outcomes: listOfStrings(projected, 'outcome'),
-      selectedMethods: listOfStrings(projected, 'method'),
-      selectedTechniques: listOfStrings(projected, 'technique'),
-      selectedForms: listOfStrings(projected, 'form'),
+      selectedMethods: listOfObjects<MethodSelection>(projected, 'method'),
+      selectedTechniques: listOfObjects<TechniqueSelection>(projected, 'technique'),
+      selectedForms: listOfObjects<OrganizationalFormSelection>(projected, 'form'),
       contentItems: listOfStrings(projected, 'content')
     };
 
@@ -313,6 +336,7 @@ export class PostgresLessonRepository implements LessonRepository {
     if (goal) lesson.goal = goal;
     if (problemQuestion) lesson.problemQuestion = problemQuestion;
     if (bigIdea) lesson.bigIdea = bigIdea;
+    if (pedagogicalTechnology) lesson.pedagogicalTechnology = pedagogicalTechnology;
 
     return lesson;
   }

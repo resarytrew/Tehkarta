@@ -10,7 +10,9 @@ export function ScenarioEditor({ lesson, context, model, busyKind, onNext }: {
   busyKind: LessonDesignArtifactKind | null;
   onNext(): void;
 }) {
-  const canSave = model.totalMinutes === lesson.durationMinutes && busyKind !== 'SCENARIO';
+  const coveredPhaseIds = new Set(model.stages.flatMap((stage) => stage.technologyPhaseIds));
+  const phasesCovered = (context?.methodology.canonicalPhases ?? []).every((phase) => coveredPhaseIds.has(phase.id));
+  const canSave = Boolean(context?.readiness.canGenerateScenario) && phasesCovered && model.totalMinutes === lesson.durationMinutes && busyKind !== 'SCENARIO';
   async function saveAndContinue() {
     try { await model.save(); onNext(); } catch { /* Notification service owns the error. */ }
   }
@@ -33,9 +35,30 @@ export function ScenarioEditor({ lesson, context, model, busyKind, onNext }: {
               <textarea aria-label={`Действия учителя ${index + 1}`} value={stage.teacherAction} onChange={(event) => model.setStages((current) => current.map((item) => item.id === stage.id ? { ...item, teacherAction: event.target.value } : item))} />
               <textarea aria-label={`Действия учеников ${index + 1}`} value={stage.studentAction} onChange={(event) => model.setStages((current) => current.map((item) => item.id === stage.id ? { ...item, studentAction: event.target.value } : item))} />
             </div>
+            {context?.methodology.canonicalPhases.length ? (
+              <fieldset className="scenario-stage__phases">
+                <legend>Фазы технологии на этом этапе</legend>
+                {context.methodology.canonicalPhases.map((phase) => (
+                  <label key={phase.id} title={phase.purpose}>
+                    <input
+                      type="checkbox"
+                      checked={stage.technologyPhaseIds.includes(phase.id)}
+                      onChange={(event) => model.setStages((current) => current.map((item) => item.id === stage.id ? {
+                        ...item,
+                        technologyPhaseIds: event.target.checked
+                          ? [...item.technologyPhaseIds, phase.id]
+                          : item.technologyPhaseIds.filter((id) => id !== phase.id)
+                      } : item))}
+                    />
+                    {phase.title}
+                  </label>
+                ))}
+              </fieldset>
+            ) : null}
           </article>
         ))}
       </div>
+      {!phasesCovered && context?.methodology.canonicalPhases.length ? <div className="workflow-warning"><strong>Не все фазы технологии распределены</strong><p>Каждая каноническая фаза должна быть представлена хотя бы на одном этапе сценария.</p></div> : null}
       <div className="workflow-actions">
         <button className="button button-ghost" type="button" onClick={model.regenerate}>↻ Сформировать из контекста курса</button>
         <button className="button button-secondary" type="button" disabled={!canSave} onClick={() => void model.save()}>{busyKind === 'SCENARIO' ? 'Сохраняем…' : `Сохранить сценарий${model.artifact ? ` · версия ${model.artifact.revision + 1}` : ''}`}</button>

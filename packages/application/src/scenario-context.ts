@@ -1,4 +1,4 @@
-import { approvedValue } from '@tehkarta/domain';
+import { approvedPedagogicalProfile, approvedValue, methodologyPackRegistry, type ApprovedPedagogicalProfile, type MethodSelection, type OrganizationalFormSelection, type PedagogicalTechnologySelection, type TechniqueSelection } from '@tehkarta/domain';
 import type { RequestContext } from '@tehkarta/ports';
 import {
   ApplicationError,
@@ -15,8 +15,12 @@ import type { ApprovedCourseLessonContext, CoursePlanningRepository } from './co
 export type ScenarioPrerequisiteCode =
   | 'GOAL'
   | 'PROBLEM_QUESTION'
+  | 'BIG_IDEA'
   | 'OUTCOME'
+  | 'PEDAGOGICAL_PROFILE'
+  | 'TECHNOLOGY'
   | 'METHOD'
+  | 'FORM'
   | 'CURRICULUM_CORE'
   | 'UMK_MAPPING'
   | 'CONTENT_SELECTION'
@@ -53,10 +57,18 @@ export interface ApprovedScenarioContext {
     bigIdea?: string;
   };
   outcomes: string[];
+  pedagogicalProfile?: ApprovedPedagogicalProfile;
   methodology: {
+    technology?: PedagogicalTechnologySelection;
+    technologyRevision?: number;
+    pedagogicalProfileRevision?: string;
+    canonicalPhases: Array<{ id: string; title: string; purpose: string }>;
     methods: string[];
     techniques: string[];
     forms: string[];
+    methodSelections: MethodSelection[];
+    techniqueSelections: TechniqueSelection[];
+    formSelections: OrganizationalFormSelection[];
   };
   content: {
     mandatoryRp: LessonCurriculumRequirement[];
@@ -83,6 +95,18 @@ function approvedList(fields: ReadonlyArray<{ value: string; meta: { status: str
     .filter((field) => field.meta.status === 'APPROVED')
     .map((field) => field.value.trim())
     .filter(Boolean);
+}
+
+function currentMethodology(lesson: import('@tehkarta/domain').Lesson) {
+  const technology = approvedValue(lesson.pedagogicalTechnology);
+  const technologyRevision = lesson.pedagogicalTechnology?.meta.revision;
+  const profileRevision = [lesson.pedagogicalProfile.style?.meta.revision ?? 0, lesson.pedagogicalProfile.communicationTone?.meta.revision ?? 0, lesson.pedagogicalProfile.focus?.meta.revision ?? 0].join('-');
+  const methods = lesson.selectedMethods.filter((field) => field.meta.status === 'APPROVED' && technology && field.value.technologyId === technology.technologyId && field.value.methodologyPackId === technology.methodologyPackId && field.value.methodologyPackVersion === technology.methodologyPackVersion && field.value.technologyRevision === technologyRevision && field.value.pedagogicalProfileRevision === profileRevision).map((field) => field.value);
+  const methodIds = new Set(methods.map((item) => item.methodId));
+  const techniques = lesson.selectedTechniques.filter((field) => field.meta.status === 'APPROVED' && methodIds.has(field.value.methodId) && technology && field.value.methodologyPackId === technology.methodologyPackId && field.value.methodologyPackVersion === technology.methodologyPackVersion).map((field) => field.value);
+  const forms = lesson.selectedForms.filter((field) => field.meta.status === 'APPROVED' && methodIds.has(field.value.methodId) && technology && field.value.methodologyPackId === technology.methodologyPackId && field.value.methodologyPackVersion === technology.methodologyPackVersion).map((field) => field.value);
+  const pack = technology ? methodologyPackRegistry.get(technology.methodologyPackId, technology.methodologyPackVersion) : undefined;
+  return { technology, technologyRevision, methods, techniques, forms, phases: pack?.phases.map(({ id, title, purpose }) => ({ id, title, purpose })) ?? [] };
 }
 
 export class BuildApprovedScenarioContext {
@@ -120,9 +144,8 @@ export class BuildApprovedScenarioContext {
     const problemQuestion = approvedValue(lesson.problemQuestion)?.trim();
     const bigIdea = approvedValue(lesson.bigIdea)?.trim();
     const outcomes = approvedList(lesson.outcomes);
-    const methods = approvedList(lesson.selectedMethods);
-    const techniques = approvedList(lesson.selectedTechniques);
-    const forms = approvedList(lesson.selectedForms);
+    const profile = approvedPedagogicalProfile(lesson.pedagogicalProfile);
+    const methodology = currentMethodology(lesson);
     const mandatoryRp = contentContext.curriculumRequirements;
     const includedIds = new Set(contentContext.approvedContentSet.includedUmkMappingIds);
     const includedUmk = contentContext.umkEvidence.filter((item) => includedIds.has(item.mappingId));
@@ -131,8 +154,12 @@ export class BuildApprovedScenarioContext {
     if (!coursePlanning) missing.push('COURSE_PLAN');
     if (!goal) missing.push('GOAL');
     if (!problemQuestion) missing.push('PROBLEM_QUESTION');
+    if (!bigIdea) missing.push('BIG_IDEA');
     if (outcomes.length === 0) missing.push('OUTCOME');
-    if (methods.length === 0) missing.push('METHOD');
+    if (!profile) missing.push('PEDAGOGICAL_PROFILE');
+    if (!methodology.technology) missing.push('TECHNOLOGY');
+    if (methodology.methods.length === 0) missing.push('METHOD');
+    if (methodology.forms.length === 0) missing.push('FORM');
     if (mandatoryRp.length === 0) missing.push('CURRICULUM_CORE');
     if (contentContext.umkEvidence.length === 0) missing.push('UMK_MAPPING');
     if (contentContext.approvedContentSet.undecidedUmkMappingIds.length > 0) {
@@ -166,10 +193,17 @@ export class BuildApprovedScenarioContext {
         ...(bigIdea ? { bigIdea } : {})
       },
       outcomes,
+      ...(profile ? { pedagogicalProfile: profile } : {}),
       methodology: {
-        methods,
-        techniques,
-        forms
+        ...(methodology.technology && methodology.technologyRevision !== undefined ? { technology: methodology.technology, technologyRevision: methodology.technologyRevision } : {}),
+        ...(profile ? { pedagogicalProfileRevision: [lesson.pedagogicalProfile.style?.meta.revision ?? 0, lesson.pedagogicalProfile.communicationTone?.meta.revision ?? 0, lesson.pedagogicalProfile.focus?.meta.revision ?? 0].join('-') } : {}),
+        canonicalPhases: methodology.phases,
+        methods: methodology.methods.map((item) => item.name),
+        techniques: methodology.techniques.map((item) => item.name),
+        forms: methodology.forms.map((item) => item.name),
+        methodSelections: methodology.methods,
+        techniqueSelections: methodology.techniques,
+        formSelections: methodology.forms
       },
       content: {
         mandatoryRp,

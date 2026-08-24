@@ -245,6 +245,23 @@ maybeTest('Methodical Constructor uses only approved outcomes and applies teache
     const readHeaders = { cookie, 'x-workspace-id': ids.workspace };
     const writeHeaders = { ...readHeaders, 'x-csrf-token': loginBody.csrfToken };
 
+    let lessonVersion = 1;
+    for (const [key, value] of [
+      ['pedagogicalStyle', 'CONSTRUCTIVIST'],
+      ['communicationTone', 'SUPPORTIVE'],
+      ['pedagogicalFocus', 'DEPTH']
+    ] as const) {
+      const edited = await app.inject({ method:'PATCH', url:`/api/v1/lessons/${ids.lesson}/pedagogical-profile/${key}`, headers:writeHeaders, payload:{ value, expectedLessonVersion:lessonVersion } });
+      assert.equal(edited.statusCode,200,edited.body); lessonVersion=edited.json<{data:{version:number}}>().data.version;
+      const approved = await app.inject({ method:'POST', url:`/api/v1/lessons/${ids.lesson}/pedagogical-profile/${key}/approve`, headers:writeHeaders, payload:{ expectedLessonVersion:lessonVersion, expectedFieldRevision:1 } });
+      assert.equal(approved.statusCode,200,approved.body); lessonVersion=approved.json<{data:{version:number}}>().data.version;
+    }
+    const technologies=await app.inject({method:'GET',url:`/api/v1/lessons/${ids.lesson}/methodology/technologies`,headers:readHeaders});
+    assert.equal(technologies.statusCode,200,technologies.body);
+    const research=technologies.json<{data:Array<{technologyId:string;packId:string;packVersion:string}>}>().data.find((item)=>item.technologyId==='research-technology')!;
+    const technology=await app.inject({method:'POST',url:`/api/v1/lessons/${ids.lesson}/methodology/technology`,headers:writeHeaders,payload:{...research,expectedLessonVersion:lessonVersion}});
+    assert.equal(technology.statusCode,200,technology.body); lessonVersion=technology.json<{data:{version:number}}>().data.version;
+
     const empty = await app.inject({
       method: 'GET',
       url: `/api/v1/lessons/${ids.lesson}/methodology/recommendations`,
@@ -263,7 +280,7 @@ maybeTest('Methodical Constructor uses only approved outcomes and applies teache
       headers: readHeaders,
       payload: {
         value: 'Объяснять причины успехов промышленной революции XIX века.',
-        expectedLessonVersion: 1
+        expectedLessonVersion: lessonVersion
       }
     });
     assert.equal(noCsrf.statusCode, 403);
@@ -274,7 +291,7 @@ maybeTest('Methodical Constructor uses only approved outcomes and applies teache
       headers: writeHeaders,
       payload: {
         value: 'Объяснять причины успехов промышленной революции XIX века, опираясь на факты и причинно-следственные связи.',
-        expectedLessonVersion: 1
+        expectedLessonVersion: lessonVersion
       }
     });
     assert.equal(outcome.statusCode, 200, outcome.body);
@@ -284,7 +301,8 @@ maybeTest('Methodical Constructor uses only approved outcomes and applies teache
         outcomes: Array<{ value: string; meta: { source: string; status: string } }>;
       };
     }>().data;
-    assert.equal(outcomeLesson.version, 2);
+    lessonVersion = outcomeLesson.version;
+    assert.equal(outcomeLesson.version, 9);
     assert.equal(outcomeLesson.outcomes[0]?.meta.source, 'TEACHER');
     assert.equal(outcomeLesson.outcomes[0]?.meta.status, 'APPROVED');
 
@@ -317,7 +335,8 @@ maybeTest('Methodical Constructor uses only approved outcomes and applies teache
       url: `/api/v1/lessons/${ids.lesson}/methodology/recommendations/${encodeURIComponent(first.id)}/use`,
       headers: writeHeaders,
       payload: {
-        expectedLessonVersion: 2,
+        expectedLessonVersion: lessonVersion,
+        methodId: first.method.id,
         formId: first.compatibleForms[0]!.id,
         techniqueIds: first.suggestedTechniques.slice(0, 2).map((item) => item.id)
       }
@@ -326,14 +345,15 @@ maybeTest('Methodical Constructor uses only approved outcomes and applies teache
     const usedLesson = use.json<{
       data: {
         version: number;
-        selectedMethods: Array<{ value: string; meta: { source: string; status: string } }>;
+        selectedMethods: Array<{ value: { methodId:string; name:string }; meta: { source: string; status: string } }>;
         selectedTechniques: Array<{ meta: { source: string; status: string } }>;
         selectedForms: Array<{ meta: { source: string; status: string } }>;
       };
       invalidations: Array<{ affectedSemanticKey: string; status: string }>;
     }>();
-    assert.equal(usedLesson.data.version, 3);
-    assert.equal(usedLesson.data.selectedMethods[0]?.value, first.method.name);
+    assert.equal(usedLesson.data.version, 10);
+    assert.equal(usedLesson.data.selectedMethods[0]?.value.name, first.method.name);
+    assert.equal(usedLesson.data.selectedMethods[0]?.value.methodId, first.method.id);
     assert.equal(usedLesson.data.selectedMethods[0]?.meta.source, 'TEACHER');
     assert.equal(usedLesson.data.selectedMethods[0]?.meta.status, 'APPROVED');
     assert.ok(

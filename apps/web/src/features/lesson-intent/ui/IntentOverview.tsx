@@ -27,7 +27,7 @@ export function IntentOverview({ lesson, course, context, onNext }: {
         <article><span>Готовность сценария</span><strong>{context?.readiness.canGenerateScenario ? 'Готов' : 'Нужны решения'}</strong></article>
       </div>
       <div className="workflow-callout">
-        <div><strong>Педагогическая технология</strong><p>{lesson.pedagogicalProfile.technology?.value ?? 'Не выбрана'}</p></div>
+        <div><strong>Педагогическая технология</strong><p>{lesson.pedagogicalTechnology?.meta.status === 'APPROVED' ? lesson.pedagogicalTechnology.value.name : 'Не выбрана'}</p></div>
         <button className="button button-primary" type="button" onClick={onNext}>Перейти к цели и результатам →</button>
       </div>
     </div>

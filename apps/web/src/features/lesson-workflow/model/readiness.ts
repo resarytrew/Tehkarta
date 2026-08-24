@@ -19,7 +19,32 @@ function artifact<T extends Record<string, unknown>>(artifacts: LessonDesignArti
 export function deriveWorkflowStepStates(input: WorkflowReadinessInput): Record<ActiveDesignStep, WorkflowStepState> {
   const { lesson, content, context, artifacts, expertiseReady } = input;
   const coreComplete = Boolean(lesson && coreDecisionsApproved(lesson));
-  const methodologyComplete = Boolean(lesson?.selectedMethods.some((field) => field.meta.status === 'APPROVED'));
+  const profileRevision = lesson ? [
+    lesson.pedagogicalProfile.style?.meta.revision ?? 0,
+    lesson.pedagogicalProfile.communicationTone?.meta.revision ?? 0,
+    lesson.pedagogicalProfile.focus?.meta.revision ?? 0
+  ].join('-') : '';
+  const profileComplete = Boolean(lesson && [
+    lesson.pedagogicalProfile.style,
+    lesson.pedagogicalProfile.communicationTone,
+    lesson.pedagogicalProfile.focus
+  ].every((field) => field?.meta.status === 'APPROVED'));
+  const technology = lesson?.pedagogicalTechnology?.meta.status === 'APPROVED'
+    ? lesson.pedagogicalTechnology
+    : undefined;
+  const currentMethodIds = new Set(lesson?.selectedMethods
+    .filter((field) => field.meta.status === 'APPROVED'
+      && technology
+      && field.value.technologyId === technology.value.technologyId
+      && field.value.technologyRevision === technology.meta.revision
+      && field.value.pedagogicalProfileRevision === profileRevision)
+    .map((field) => field.value.methodId) ?? []);
+  const hasCurrentForm = lesson?.selectedForms.some((field) => field.meta.status === 'APPROVED'
+    && currentMethodIds.has(field.value.methodId)
+    && technology
+    && field.value.methodologyPackId === technology.value.methodologyPackId
+    && field.value.methodologyPackVersion === technology.value.methodologyPackVersion) ?? false;
+  const methodologyComplete = profileComplete && Boolean(technology) && currentMethodIds.size > 0 && hasCurrentForm;
   const contentComplete = Boolean(content && content.approvedContentSet.undecidedUmkMappingIds.length === 0);
   const scenario = artifact<ScenarioPayload>(artifacts, 'SCENARIO');
   const materials = artifact<MaterialsPayload>(artifacts, 'MATERIALS');

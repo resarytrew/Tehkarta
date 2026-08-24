@@ -10,7 +10,7 @@ import {
   type LessonDesignArtifactRepository,
   type LessonRepository
 } from '@tehkarta/application';
-import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
+import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext, Telemetry } from '@tehkarta/ports';
 import {
   requestContextFromPrincipal,
   requireCsrf,
@@ -28,6 +28,7 @@ interface Dependencies {
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
+  telemetry?: Telemetry;
 }
 
 function artifactKind(value: string): LessonDesignArtifactKind {
@@ -74,8 +75,10 @@ export async function registerLessonWorkflowRoutes(
   const saveArtifact = new SaveLessonDesignArtifact({
     lessons: dependencies.lessons,
     artifacts: dependencies.artifacts,
+    buildApprovedContext: (context, lessonId) => scenarioContext.execute(context, lessonId),
     now: () => dependencies.clock.now(),
-    generateId: (prefix) => dependencies.ids.generate(prefix)
+    generateId: (prefix) => dependencies.ids.generate(prefix),
+    ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {})
   });
 
   app.get<{ Params: { lessonId: string } }>(

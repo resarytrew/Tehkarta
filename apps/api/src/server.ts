@@ -11,6 +11,7 @@ import {
   PostgresLessonContentSelectionRepository,
   PostgresLessonDesignArtifactRepository,
   PostgresLessonInvalidationRepository,
+  PostgresKnowledgeSpaceRepository,
   PostgresLessonRepository,
   PostgresLoginThrottleRepository,
   PostgresMethodologyFeedbackRepository,
@@ -29,6 +30,7 @@ import type { Clock, IdGenerator } from '@tehkarta/ports';
 import { createApiApp } from './app.js';
 import { loadApiConfig } from './config.js';
 import { hashLoginPrincipal } from './security.js';
+import { JsonLineTelemetry } from './telemetry.js';
 
 const config = loadApiConfig();
 const pool = createPostgresPool(databaseConfigFromEnv());
@@ -38,6 +40,7 @@ await pool.query('SELECT 1');
 const clock: Clock = {
   now: () => new Date()
 };
+const telemetry = new JsonLineTelemetry();
 
 const ids: IdGenerator = {
   generate: (prefix = 'id') => `${prefix}_${randomUUID()}`
@@ -85,9 +88,11 @@ const app = await createApiApp(config, {
   contentContext: new PostgresLessonContentContextRepository(pool),
   contentSelections: new PostgresLessonContentSelectionRepository(pool),
   designArtifacts: new PostgresLessonDesignArtifactRepository(pool),
+  knowledgeSpaces: new PostgresKnowledgeSpaceRepository(pool),
   authorization: new WorkspaceAuthorizationPolicy(),
   clock,
-  ids
+  ids,
+  telemetry
 });
 
 let shuttingDown = false;

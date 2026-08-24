@@ -11,6 +11,9 @@ interface CourseSidebarProps {
   onSelectLesson(lessonId: string): void;
   onOpenCoursePlan(): void;
   coursePlanActive: boolean;
+  knowledgeAdminAvailable: boolean;
+  knowledgeAdminActive: boolean;
+  onOpenKnowledgeAdmin(): void;
 }
 
 const lessonStateLabel: Record<LessonSummary['state'], string> = {
@@ -29,7 +32,10 @@ export function CourseSidebar({
   onSelectCourse,
   onSelectLesson,
   onOpenCoursePlan,
-  coursePlanActive
+  coursePlanActive,
+  knowledgeAdminAvailable,
+  knowledgeAdminActive,
+  onOpenKnowledgeAdmin
 }: CourseSidebarProps) {
   const lessonsById = new Map(lessons.map((lesson) => [lesson.id, lesson]));
 
@@ -62,6 +68,7 @@ export function CourseSidebar({
         >
           План курса и источники
         </button>
+        {knowledgeAdminAvailable ? <button className={`button course-sidebar__plan-button ${knowledgeAdminActive ? 'button-primary' : 'button-secondary'}`} type="button" onClick={onOpenKnowledgeAdmin}>База знаний УМК</button> : null}
       </div>
 
       <div className="course-tree" aria-label="Разделы и уроки курса">

@@ -70,6 +70,7 @@ export interface CourseSourceDocument {
 
 export interface ApprovedCourseLessonContext {
   courseId: string;
+  knowledgeSpaceId?: string;
   planRevision: number;
   contextRevision: string;
   courseGoals: string[];
@@ -88,6 +89,7 @@ export interface ApprovedCourseLessonContext {
     pageEnd?: number;
     text: string;
     contentHash: string;
+    knowledgeProvenance?: { knowledgeSpaceId:string; chunkId:string; sourceRevision:string; umkId:string };
   }>;
 }
 

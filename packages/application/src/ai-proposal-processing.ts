@@ -135,6 +135,13 @@ export interface ApprovedProposalGenerationContext {
     designFreedom: Lesson['designFreedom'];
   };
   approvedPedagogicalProfile: Record<string, string>;
+  approvedPedagogicalTechnology?: {
+    technologyId: string;
+    name: string;
+    methodologyPackId: string;
+    methodologyPackVersion: string;
+    revision: number;
+  };
   approvedGoal?: string;
   approvedProblemQuestion?: string;
   approvedBigIdea?: string;
@@ -182,15 +189,18 @@ function approvedProfile(lesson: Lesson): Record<string, string> {
     ['creed', lesson.pedagogicalProfile.creed],
     ['style', lesson.pedagogicalProfile.style],
     ['communicationTone', lesson.pedagogicalProfile.communicationTone],
-    ['focus', lesson.pedagogicalProfile.focus],
-    ['technology', lesson.pedagogicalProfile.technology]
+    ['focus', lesson.pedagogicalProfile.focus]
   ];
 
   for (const [key, field] of fields) {
     const value = approvedValue(field);
-    if (value !== undefined) result[key] = value;
+    if (value !== undefined) result[key] = String(value);
   }
   return result;
+}
+
+function approvedNames<T extends { name: string }>(fields: Array<import('@tehkarta/domain').GovernedField<T>>): string[] {
+  return fields.flatMap((field) => field.meta.status === 'APPROVED' ? [field.value.name] : []);
 }
 
 export function buildApprovedProposalContext(
@@ -231,10 +241,16 @@ export function buildApprovedProposalContext(
       designFreedom: lesson.designFreedom
     },
     approvedPedagogicalProfile: approvedProfile(lesson),
+    ...(approvedValue(lesson.pedagogicalTechnology) ? {
+      approvedPedagogicalTechnology: {
+        ...approvedValue(lesson.pedagogicalTechnology)!,
+        revision: lesson.pedagogicalTechnology!.meta.revision
+      }
+    } : {}),
     approvedOutcomes: approvedStrings(lesson.outcomes),
-    approvedMethods: approvedStrings(lesson.selectedMethods),
-    approvedTechniques: approvedStrings(lesson.selectedTechniques),
-    approvedForms: approvedStrings(lesson.selectedForms),
+    approvedMethods: approvedNames(lesson.selectedMethods),
+    approvedTechniques: approvedNames(lesson.selectedTechniques),
+    approvedForms: approvedNames(lesson.selectedForms),
     approvedContentItems: approvedStrings(lesson.contentItems),
     ...(coursePlanning ? { coursePlanning } : {})
   };

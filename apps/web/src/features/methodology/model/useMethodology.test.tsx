@@ -27,10 +27,12 @@ test('methodology mutation exposes local busy state and applies server response 
 test('dependency-stale methodology mutation refreshes both lesson and recommendation bundle', async () => {
   const refreshLesson = vi.fn(async () => undefined);
   const refreshMethodology = vi.fn(async () => undefined);
-  const workspace = lessonWorkspaceFixture({ refreshLesson, refreshMethodology });
+  const refreshScenario = vi.fn(async () => undefined);
+  const workspace = lessonWorkspaceFixture({ refreshLesson, refreshMethodology, refreshScenario });
   vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ code: 'DEPENDENCY_STALE' }), { status: 409, headers: { 'content-type': 'application/json' } })));
   const { result } = renderHook(() => useMethodology({ ...workspace, bundle: workspace.methodology }, () => undefined), { wrapper: TestProviders });
   await act(() => result.current.addOutcome('Новый результат'));
   expect(refreshLesson).toHaveBeenCalledOnce();
   expect(refreshMethodology).toHaveBeenCalledOnce();
+  expect(refreshScenario).toHaveBeenCalledOnce();
 });

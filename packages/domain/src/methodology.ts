@@ -53,6 +53,7 @@ export interface MethodDefinition {
   preparation: string[];
   constraints: string[];
   antiPatterns: string[];
+  focusSignals?: import('./pedagogy.js').PedagogicalFocus[];
 }
 
 export interface TechniqueDefinition {

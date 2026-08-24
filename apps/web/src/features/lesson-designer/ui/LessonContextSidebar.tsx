@@ -16,7 +16,7 @@ export function LessonContextSidebar({ workspace, course, activeStep }: { worksp
         <span className="eyebrow">{stepContextLabels[activeStep]}</span>
         <h3>Что уже зафиксировано</h3>
         <div className="context-list">
-          <div><span>Педагогическая технология</span><strong>{activeStep === 3 ? workspace.methodology?.pack.technology.name ?? 'Исследовательская технология' : lesson.pedagogicalProfile.technology?.value ?? 'Не выбрана'}</strong></div>
+          <div><span>Педагогическая технология</span><strong>{lesson.pedagogicalTechnology?.meta.status === 'APPROVED' ? lesson.pedagogicalTechnology.value.name : 'Не выбрана'}</strong></div>
           <div><span>Режим содержания</span><strong>{contentFreedomLabels[lesson.designFreedom.contentFreedom]}</strong></div>
           <div><span>УМК</span><strong>{workspace.contentContext?.contentPack.title ?? course?.contentPackId ?? 'Не привязан'}</strong></div>
           <div><span>Утверждённых результатов</span><strong>{lesson.outcomes.filter((field) => field.meta.status === 'APPROVED').length}</strong></div>

@@ -68,6 +68,21 @@ interface FragmentRow {
   content_hash: string;
 }
 
+interface KnowledgeFragmentRow {
+  source_id: string;
+  source_title: string;
+  source_role: CourseSourceRole;
+  unit_id: string;
+  ordinal: number;
+  page_start: number | null;
+  page_end: number | null;
+  text_content: string;
+  content_hash: string;
+  knowledge_space_id: string;
+  source_revision: string;
+  umk_id: string;
+}
+
 function stringArray(value: unknown, field: string): string[] {
   if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
     throw new ApplicationError('VALIDATION_FAILED', `Stored ${field} is invalid.`);
@@ -434,7 +449,7 @@ export class PostgresCoursePlanningRepository implements CoursePlanningRepositor
     if (!plan || plan.status !== 'APPROVED') return null;
     const current = plan.lessons.find((lesson) => lesson.lessonId === lessonId);
     if (!current) return null;
-    const fragmentResult = await this.pool.query<FragmentRow>(
+    const [fragmentResult, knowledgeResult] = await Promise.all([this.pool.query<FragmentRow>(
       `SELECT d.id AS source_id, d.title AS source_title, b.source_role,
               u.id AS unit_id, u.ordinal, u.page_start, u.page_end,
               left(u.text_content, 1600) AS text_content, u.content_hash
@@ -450,8 +465,35 @@ export class PostgresCoursePlanningRepository implements CoursePlanningRepositor
                 b.created_at, u.ordinal
        LIMIT 24`,
       [context.workspaceId, courseId]
-    );
-    const sourceFragments: CourseSourceFragment[] = fragmentResult.rows.map((row) => ({
+    ), this.pool.query<KnowledgeFragmentRow>(
+      `SELECT d.id AS source_id, d.title AS source_title,
+              CASE d.document_type
+                WHEN 'WORKING_PROGRAM' THEN 'WORKING_PROGRAM'
+                WHEN 'TEXTBOOK' THEN 'TEXTBOOK'
+                WHEN 'METHOD_GUIDE' THEN 'METHOD_GUIDE'
+                WHEN 'ATLAS' THEN 'ATLAS'
+                WHEN 'WORKBOOK' THEN 'WORKBOOK'
+                WHEN 'ASSESSMENT' THEN 'ASSESSMENT'
+                ELSE 'OTHER'
+              END AS source_role,
+              k.id AS unit_id, k.ordinal,
+              CASE WHEN (k.metadata->>'pageStart') ~ '^[0-9]+$' THEN (k.metadata->>'pageStart')::int END AS page_start,
+              CASE WHEN (k.metadata->>'pageEnd') ~ '^[0-9]+$' THEN (k.metadata->>'pageEnd')::int END AS page_end,
+              left(k.text_content,1600) AS text_content, md5(k.text_content) AS content_hash,
+              ks.id AS knowledge_space_id, d.source_revision, ks.umk_id
+       FROM courses c
+       JOIN knowledge_spaces ks ON ks.id=c.knowledge_space_id AND ks.workspace_id=c.workspace_id AND ks.status='PUBLISHED'
+       JOIN knowledge_documents d ON d.knowledge_space_id=ks.id AND d.workspace_id=ks.workspace_id AND d.status='PUBLISHED'
+       JOIN knowledge_chunks k ON k.document_id=d.id AND k.knowledge_space_id=ks.id AND k.workspace_id=ks.workspace_id
+       WHERE c.id=$1 AND c.workspace_id=$2 AND c.archived_at IS NULL
+       ORDER BY ts_rank_cd(k.search_vector,websearch_to_tsquery('simple',$3)) DESC,
+                CASE d.document_type WHEN 'WORKING_PROGRAM' THEN 0 WHEN 'TEXTBOOK' THEN 1 ELSE 2 END,
+                d.id,k.ordinal
+       LIMIT 16`,
+      [courseId,context.workspaceId,[current.topic,...current.concepts].join(' ')]
+    )]);
+    const allRows: Array<FragmentRow | KnowledgeFragmentRow> = [...fragmentResult.rows, ...knowledgeResult.rows];
+    const sourceFragments: CourseSourceFragment[] = allRows.map((row) => ({
       sourceId: row.source_id,
       sourceTitle: row.source_title,
       sourceRole: row.source_role,
@@ -460,10 +502,12 @@ export class PostgresCoursePlanningRepository implements CoursePlanningRepositor
       ...(row.page_start !== null ? { pageStart: row.page_start } : {}),
       ...(row.page_end !== null ? { pageEnd: row.page_end } : {}),
       text: row.text_content,
-      contentHash: row.content_hash
+      contentHash: row.content_hash,
+      ...('knowledge_space_id' in row ? { knowledgeProvenance:{ knowledgeSpaceId:row.knowledge_space_id, chunkId:row.unit_id, sourceRevision:row.source_revision, umkId:row.umk_id } } : {})
     }));
     return {
       courseId,
+      ...(knowledgeResult.rows[0]?.knowledge_space_id ? { knowledgeSpaceId:knowledgeResult.rows[0].knowledge_space_id } : {}),
       planRevision: plan.revision,
       contextRevision: `${plan.revision}-${createHash('sha256')
         .update(sourceFragments.map((fragment) => `${fragment.sourceId}:${fragment.contentHash}`).join('|'))

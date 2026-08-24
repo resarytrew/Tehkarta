@@ -16,7 +16,7 @@ export function lessonFixture(overrides: Partial<Lesson> = {}): Lesson {
   };
 }
 
-export function approvedField(value: string, fieldId: string = crypto.randomUUID()): GovernedField<string> {
+export function approvedField<T>(value: T, fieldId: string = crypto.randomUUID()): GovernedField<T> {
   return {
     fieldId,
     value,

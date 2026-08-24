@@ -12,7 +12,7 @@ export function LessonHeading({ course, lesson }: { course: Course | null; lesso
           <span>{lesson.durationMinutes} минут</span>
           <span>{designModeLabels[lesson.designFreedom.mode]}</span>
           <span>{contentFreedomLabels[lesson.designFreedom.contentFreedom]}</span>
-          {lesson.pedagogicalProfile.technology?.value ? <span>{lesson.pedagogicalProfile.technology.value}</span> : null}
+          {lesson.pedagogicalTechnology?.meta.status === 'APPROVED' ? <span>{lesson.pedagogicalTechnology.value.name}</span> : null}
         </div>
       </div>
       <div className="lesson-version"><span>Версия урока</span><strong>v{lesson.version}</strong></div>

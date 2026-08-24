@@ -20,9 +20,16 @@ export function materialDefaults(context: ApprovedScenarioContext | null, stages
     source: `${item.sourceRole} · фрагмент ${item.ordinal}`,
     ready: true
   }));
+  const techniqueIds = new Set(context?.methodology.techniqueSelections.map((item) => item.techniqueId) ?? []);
+  const methodMaterials: LessonMaterialItem[] = [];
+  if (techniqueIds.has('source-passport')) methodMaterials.push({ id: 'method-source-passport', title: 'Паспорт источника', purpose: 'Фиксация происхождения, позиции автора, адресата и ограничений каждого источника.', source: 'Шаблон выбранного приёма', ready: false });
+  if (techniqueIds.has('evidence-table') || techniqueIds.has('fact-evidence-conclusion')) methodMaterials.push({ id: 'method-evidence-table', title: 'Таблица «факт — доказательство — вывод»', purpose: `Сбор проверяемых аргументов для ответа на вопрос «${problemQuestion}».`, source: 'Шаблон выбранного приёма', ready: false });
+  if (techniqueIds.has('competing-hypotheses') || techniqueIds.has('hypothesis')) methodMaterials.push({ id: 'method-hypothesis-sheet', title: 'Матрица проверки гипотез', purpose: 'Сопоставление предположений с подтверждающими и опровергающими данными.', source: 'Шаблон выбранного приёма', ready: false });
+  if (techniqueIds.has('role-card') || techniqueIds.has('roles')) methodMaterials.push({ id: 'method-role-cards', title: 'Карточки ролей', purpose: 'Распределение ответственности и правил взаимодействия в группе.', source: 'Шаблон выбранного приёма', ready: false });
   return [
     ...fromUmk,
     ...fromCourse,
+    ...methodMaterials,
     { id: 'teacher-working-sheet', title: 'Рабочий лист к проблемному вопросу', purpose: `Фиксация гипотез и аргументов для ответа на вопрос «${problemQuestion}».`, source: 'Авторский материал учителя', ready: false },
     { id: 'teacher-exit-ticket', title: 'Лист рефлексии и выходной билет', purpose: `Проверка достижения результата: «${outcome}».`, source: 'Сформировано из утверждённого результата урока', ready: false }
   ];

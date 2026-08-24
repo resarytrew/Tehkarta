@@ -10,6 +10,10 @@ export const missingScenarioLabels: Record<string, string> = {
   UMK_MAPPING: 'материалы УМК',
   CONTENT_SELECTION: 'решения по всем материалам УМК',
   COURSE_PLAN: 'утверждённый план курса и источники'
+  ,BIG_IDEA: 'утверждённая большая идея'
+  ,PEDAGOGICAL_PROFILE: 'утверждённый педагогический профиль'
+  ,TECHNOLOGY: 'утверждённая педагогическая технология'
+  ,FORM: 'выбранная организационная форма'
 };
 
 export function scenarioDefaults(lesson: Lesson, context: ApprovedScenarioContext | null): ScenarioStage[] {
@@ -33,6 +37,10 @@ export function scenarioDefaults(lesson: Lesson, context: ApprovedScenarioContex
     ? ` Актуализирует предыдущие темы: ${previousTopics.join('; ')}${masteredConcepts.length > 0 ? ` и понятия: ${masteredConcepts.join(', ')}` : ''}.`
     : '';
   const courseBridge = nextTopic ? ` Подготавливает переход к следующей теме «${nextTopic}».` : '';
+  const phaseBuckets = Array.from({ length: 5 }, () => [] as string[]);
+  for (const [index, phase] of (context?.methodology.canonicalPhases ?? []).entries()) {
+    phaseBuckets[Math.min(4, Math.floor(index * 5 / Math.max(1, context?.methodology.canonicalPhases.length ?? 1)))]?.push(phase.id);
+  }
   return [
     ['Мотивация и вход в тему', 5, `Возвращает к цели: «${goal}» и создаёт учебную ситуацию.${continuity}`, 'Актуализируют уже освоенное и фиксируют вопросы к новой теме.'],
     ['Постановка проблемы', 5, `Предъявляет вопрос: «${problemQuestion}» и критерии ответа.`, 'Формулируют версии и выбирают направление поиска.'],
@@ -44,6 +52,7 @@ export function scenarioDefaults(lesson: Lesson, context: ApprovedScenarioContex
     title: title as string,
     minutes: minutes as number,
     teacherAction: teacherAction as string,
-    studentAction: studentAction as string
+    studentAction: studentAction as string,
+    technologyPhaseIds: phaseBuckets[index] ?? []
   }));
 }

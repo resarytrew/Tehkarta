@@ -28,10 +28,10 @@ export function useMethodology(dependencies: MethodologyDependencies, onLessonVe
     return recover(
       error,
       error instanceof ApiRequestError && error.status === 409
-        ? async () => Promise.all([refreshLesson(), refreshMethodology()]).then(() => undefined)
+        ? async () => Promise.all([refreshLesson(), refreshMethodology(), refreshScenario()]).then(() => undefined)
         : undefined
     );
-  }, [recover, refreshLesson, refreshMethodology]);
+  }, [recover, refreshLesson, refreshMethodology, refreshScenario]);
 
   const addOutcome = useCallback(async (value: string) => {
     if (!lesson) return;
@@ -53,6 +53,7 @@ export function useMethodology(dependencies: MethodologyDependencies, onLessonVe
       const response = await useMethodologyRecommendation(api, {
         lessonId: lesson.id,
         recommendationId: recommendation.id,
+        methodId: recommendation.method.id,
         formId: choice.formId,
         techniqueIds: choice.techniqueIds,
         expectedLessonVersion: lesson.version

@@ -1,16 +1,23 @@
 import {
+  approvedPedagogicalProfile,
   approvedValue,
-  researchMethodologyPackV1,
+  methodologyPackRegistry,
   type GovernedField,
   type Lesson,
+  type MethodSelection,
   type MethodDefinition,
   type MethodologyPack,
   type MethodologyPackRef,
   type OrganizationalFormDefinition,
   type OutcomeKind,
-  type TechniqueDefinition
+  type TechniqueDefinition,
+  type TechniqueSelection,
+  type OrganizationalFormSelection,
+  type ApprovedPedagogicalProfile,
+  type MethodologyPackRegistry,
+  type PedagogicalFocus
 } from '@tehkarta/domain';
-import type { Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
+import type { Clock, IdGenerator, RequestContext, Telemetry } from '@tehkarta/ports';
 import { ApplicationError, type LessonRepository } from './index.js';
 import type { LessonInvalidation, LessonInvalidationRepository } from './lesson-governance.js';
 import type { ApprovedCourseLessonContext, CoursePlanningRepository } from './course-planning.js';
@@ -44,6 +51,8 @@ export interface MethodologyRecommendationBundle {
     technology: { id: string; name: string; description: string; antiPatterns: string[] };
   };
   recommendations: MethodologyRecommendation[];
+  technologyRevision: number;
+  profileInfluence?: { focus: PedagogicalFocus; note: string };
   courseContext?: {
     planRevision: number;
     contextRevision: string;
@@ -53,6 +62,23 @@ export interface MethodologyRecommendationBundle {
     nextTopics: string[];
     approvedSourceCount: number;
   };
+}
+
+export interface MethodologyRecommendationContext {
+  lesson: Lesson;
+  pack: MethodologyPack;
+  courseContext?: ApprovedCourseLessonContext;
+  pedagogicalProfile?: ApprovedPedagogicalProfile;
+}
+
+function resolveApprovedPack(lesson: Lesson, registry: MethodologyPackRegistry = methodologyPackRegistry): MethodologyPack {
+  const selection = approvedValue(lesson.pedagogicalTechnology);
+  if (!selection) throw new ApplicationError('DEPENDENCY_STALE', 'Сначала утвердите педагогическую технологию.');
+  const pack = registry.get(selection.methodologyPackId, selection.methodologyPackVersion);
+  if (!pack || pack.technology.id !== selection.technologyId) {
+    throw new ApplicationError('DEPENDENCY_STALE', 'Утверждённая технология ссылается на недоступную версию методического пакета.');
+  }
+  return pack;
 }
 
 export interface MethodologyFeedbackRepository {
@@ -97,7 +123,8 @@ function methodScore(
   method: MethodDefinition,
   kinds: OutcomeKind[],
   text: string,
-  courseContext?: ApprovedCourseLessonContext
+  courseContext?: ApprovedCourseLessonContext,
+  focus?: PedagogicalFocus
 ): number {
   let score = kinds.filter((kind) => method.compatibleOutcomeKinds.includes(kind)).length * 10;
   if (method.id === 'hypothesis-testing' && includesAny(text, ['причин', 'почему', 'объясн', 'фактор'])) score += 12;
@@ -111,6 +138,7 @@ function methodScore(
     if (method.id === 'comparative' && courseContext.previousLessons.length > 0) score += 3;
     if (method.id === 'hypothesis-testing' && courseContext.previousLessons.length > 1) score += 2;
   }
+  if (focus && method.focusSignals?.includes(focus)) score += 4;
   return score;
 }
 
@@ -119,6 +147,8 @@ function recommendationId(
   _lesson: Lesson,
   outcome: GovernedField<string>,
   methodId: string,
+  technologyRevision: number,
+  profileRevision: string,
   courseContext?: ApprovedCourseLessonContext
 ): string {
   // Recommendation IDs are used as route parameters. Keep them comfortably below
@@ -132,7 +162,7 @@ function recommendationId(
   const courseRevision = courseContext
     ? `_c${courseContext.contextRevision.replace(/[^a-zA-Z0-9_.:-]+/g, '-')}`
     : '';
-  return `mrec_${packVersion}_${outcomeIdentity}_r${outcome.meta.revision}_${method}${courseRevision}`;
+  return `mrec_${packVersion}_t${technologyRevision}_p${profileRevision}_${outcomeIdentity}_r${outcome.meta.revision}_${method}${courseRevision}`;
 }
 
 function rationaleFor(
@@ -162,11 +192,10 @@ function rationaleFor(
   return `Метод «${method.name}» напрямую поддерживает: ${targets}.${questionNote}${courseNote}`;
 }
 
-export function recommendMethodology(
-  lesson: Lesson,
-  pack: MethodologyPack = researchMethodologyPackV1,
-  courseContext?: ApprovedCourseLessonContext
-): MethodologyRecommendationBundle {
+export function recommendMethodologyFromContext(context: MethodologyRecommendationContext): MethodologyRecommendationBundle {
+  const { lesson, pack, courseContext, pedagogicalProfile } = context;
+  const technologyRevision = lesson.pedagogicalTechnology?.meta.revision ?? 0;
+  const profileRevision = [lesson.pedagogicalProfile.style?.meta.revision ?? 0, lesson.pedagogicalProfile.communicationTone?.meta.revision ?? 0, lesson.pedagogicalProfile.focus?.meta.revision ?? 0].join('-');
   const approvedOutcomes = lesson.outcomes.filter((field) => approvedValue(field) !== undefined);
   const problemQuestion = approvedValue(lesson.problemQuestion);
   const recommendations: MethodologyRecommendation[] = [];
@@ -176,14 +205,12 @@ export function recommendMethodology(
     const text = normalizeText(value);
     const kinds = inferOutcomeKinds(value);
     let ranked = pack.methods
-      .map((method) => ({ method, score: methodScore(method, kinds, text, courseContext) }))
+      .map((method) => ({ method, score: methodScore(method, kinds, text, courseContext, pedagogicalProfile?.focus) }))
       .filter((entry) => entry.score > 0)
       .sort((a, b) => b.score - a.score || a.method.name.localeCompare(b.method.name, 'ru'));
 
     if (ranked.length === 0) {
-      ranked = ['source-analysis', 'comparative']
-        .map((id) => ({ method: pack.methods.find((method) => method.id === id)!, score: 1 }))
-        .filter((entry) => Boolean(entry.method));
+      ranked = pack.methods.slice(0, 2).map((method) => ({ method, score: 1 }));
     }
 
     for (const { method } of ranked.slice(0, 2)) {
@@ -210,7 +237,7 @@ export function recommendMethodology(
       }
 
       recommendations.push({
-        id: recommendationId(pack, lesson, outcome, method.id, courseContext),
+        id: recommendationId(pack, lesson, outcome, method.id, technologyRevision, profileRevision, courseContext),
         packRef: { id: pack.id, version: pack.version },
         technology: { id: pack.technology.id, name: pack.technology.name },
         technologyPhase: { id: phase.id, name: phase.title },
@@ -264,6 +291,8 @@ export function recommendMethodology(
       }
     },
     recommendations,
+    technologyRevision,
+    ...(pedagogicalProfile ? { profileInfluence: { focus: pedagogicalProfile.focus, note: 'Фокус влияет на порядок совместимых методов, но не отменяет ограничения технологии и результата.' } } : {}),
     ...(courseContext
       ? {
           courseContext: {
@@ -280,13 +309,23 @@ export function recommendMethodology(
   };
 }
 
-function approvedTeacherField(
+export function recommendMethodology(
+  lesson: Lesson,
+  pack?: MethodologyPack,
+  courseContext?: ApprovedCourseLessonContext
+): MethodologyRecommendationBundle {
+  const resolvedPack = pack ?? resolveApprovedPack(lesson);
+  const profile = approvedPedagogicalProfile(lesson.pedagogicalProfile);
+  return recommendMethodologyFromContext({ lesson, pack: resolvedPack, ...(courseContext ? { courseContext } : {}), ...(profile ? { pedagogicalProfile: profile } : {}) });
+}
+
+function approvedTeacherField<T>(
   ids: IdGenerator,
   prefix: string,
-  value: string,
+  value: T,
   actorUserId: string,
   at: string
-): GovernedField<string> {
+): GovernedField<T> {
   return {
     fieldId: ids.generate(prefix),
     value,
@@ -302,15 +341,16 @@ function approvedTeacherField(
   };
 }
 
-function appendUnique(
-  current: GovernedField<string>[],
-  value: string,
+function appendUnique<T>(
+  current: GovernedField<T>[],
+  value: T,
+  identity: (value: T) => string,
   ids: IdGenerator,
   prefix: string,
   actor: string,
   at: string
-): { fields: GovernedField<string>[]; added?: GovernedField<string> } {
-  if (current.some((field) => field.value === value && field.meta.status === 'APPROVED')) return { fields: current };
+): { fields: GovernedField<T>[]; added?: GovernedField<T> } {
+  if (current.some((field) => identity(field.value) === identity(value) && field.meta.status === 'APPROVED')) return { fields: current };
   const added = approvedTeacherField(ids, prefix, value, actor, at);
   return { fields: [...current, added], added };
 }
@@ -339,8 +379,9 @@ export class ListMethodologyRecommendations {
   constructor(
     private readonly lessons: LessonRepository,
     private readonly feedback: MethodologyFeedbackRepository,
-    private readonly pack: MethodologyPack = researchMethodologyPackV1,
-    private readonly planning?: CoursePlanningRepository
+    private readonly registry: MethodologyPackRegistry = methodologyPackRegistry,
+    private readonly planning?: CoursePlanningRepository,
+    private readonly telemetry?: Telemetry
   ) {}
 
   async execute(context: RequestContext, lessonId: string): Promise<MethodologyRecommendationBundle> {
@@ -349,7 +390,10 @@ export class ListMethodologyRecommendations {
     const courseContext = this.planning
       ? await this.planning.getApprovedLessonContext(context, lesson.courseId, lesson.id)
       : null;
-    const bundle = recommendMethodology(lesson, this.pack, courseContext ?? undefined);
+    const started=Date.now();
+    const bundle = recommendMethodology(lesson, resolveApprovedPack(lesson, this.registry), courseContext ?? undefined);
+    this.telemetry?.increment('methodology.recommendation.generated', bundle.recommendations.length, { packId:bundle.pack.id, packVersion:bundle.pack.version, technologyId:bundle.pack.technology.id });
+    this.telemetry?.timing('methodology.recommendation.duration', Date.now()-started, { packId:bundle.pack.id, packVersion:bundle.pack.version });
     const rejected = new Set(await this.feedback.listRejectedIds(context, lessonId));
     return { ...bundle, recommendations: bundle.recommendations.filter((item) => !rejected.has(item.id)) };
   }
@@ -403,8 +447,9 @@ export class ApplyMethodologyRecommendation {
       invalidations: LessonInvalidationRepository;
       clock: Clock;
       ids: IdGenerator;
-      pack?: MethodologyPack;
+      registry?: MethodologyPackRegistry;
       planning?: CoursePlanningRepository;
+      telemetry?: Telemetry;
     }
   ) {}
 
@@ -413,6 +458,7 @@ export class ApplyMethodologyRecommendation {
     input: {
       lessonId: string;
       recommendationId: string;
+      methodId: string;
       formId: string;
       techniqueIds?: string[];
       expectedLessonVersion: number;
@@ -420,13 +466,16 @@ export class ApplyMethodologyRecommendation {
   ): Promise<{ lesson: Lesson; invalidations: LessonInvalidation[] }> {
     const lesson = await this.deps.lessons.getById(context, input.lessonId);
     if (!lesson) throw new ApplicationError('NOT_FOUND', `Lesson ${input.lessonId} was not found.`);
-    const pack = this.deps.pack ?? researchMethodologyPackV1;
+    const pack = resolveApprovedPack(lesson, this.deps.registry);
     const courseContext = this.deps.planning
       ? await this.deps.planning.getApprovedLessonContext(context, lesson.courseId, lesson.id)
       : null;
     const current = recommendMethodology(lesson, pack, courseContext ?? undefined).recommendations.find((item) => item.id === input.recommendationId);
     if (!current) {
       throw new ApplicationError('DEPENDENCY_STALE', 'Methodology recommendation no longer matches the approved lesson state.');
+    }
+    if (current.method.id !== input.methodId) {
+      throw new ApplicationError('DEPENDENCY_STALE', 'Selected method no longer matches the current recommendation.');
     }
     const form = current.compatibleForms.find((item) => item.id === input.formId);
     if (!form) throw new ApplicationError('VALIDATION_FAILED', 'Selected organizational form is not compatible with this recommendation.');
@@ -438,15 +487,29 @@ export class ApplyMethodologyRecommendation {
     }
 
     const at = this.deps.clock.now().toISOString();
-    const methodResult = appendUnique(lesson.selectedMethods, current.method.name, this.deps.ids, 'method', context.actorUserId, at);
+    const technology = approvedValue(lesson.pedagogicalTechnology)!;
+    const methodSelection: MethodSelection = {
+      methodId: current.method.id,
+      name: current.method.name,
+      technologyId: technology.technologyId,
+      methodologyPackId: pack.id,
+      methodologyPackVersion: pack.version,
+      targetOutcomeFieldId: current.targetOutcome.fieldId,
+      targetOutcomeRevision: current.targetOutcome.revision,
+      technologyRevision: lesson.pedagogicalTechnology!.meta.revision,
+      pedagogicalProfileRevision: [lesson.pedagogicalProfile.style?.meta.revision ?? 0, lesson.pedagogicalProfile.communicationTone?.meta.revision ?? 0, lesson.pedagogicalProfile.focus?.meta.revision ?? 0].join('-')
+    };
+    const methodResult = appendUnique(lesson.selectedMethods, methodSelection, (value) => `${value.methodologyPackId}@${value.methodologyPackVersion}:${value.methodId}:t${value.technologyRevision}`, this.deps.ids, 'method', context.actorUserId, at);
     let techniques = lesson.selectedTechniques;
-    const newlyAdded: GovernedField<string>[] = methodResult.added ? [methodResult.added] : [];
+    const newlyAdded: GovernedField<unknown>[] = methodResult.added ? [methodResult.added] : [];
     for (const technique of current.suggestedTechniques.filter((item) => requestedTechniqueIds.includes(item.id))) {
-      const result = appendUnique(techniques, technique.name, this.deps.ids, 'technique', context.actorUserId, at);
+      const value: TechniqueSelection = { techniqueId: technique.id, name: technique.name, methodId: current.method.id, methodologyPackId: pack.id, methodologyPackVersion: pack.version };
+      const result = appendUnique(techniques, value, (item) => `${item.methodologyPackId}@${item.methodologyPackVersion}:${item.methodId}:${item.techniqueId}`, this.deps.ids, 'technique', context.actorUserId, at);
       techniques = result.fields;
       if (result.added) newlyAdded.push(result.added);
     }
-    const formResult = appendUnique(lesson.selectedForms, form.name, this.deps.ids, 'form', context.actorUserId, at);
+    const formValue: OrganizationalFormSelection = { formId: form.id, name: form.name, methodId: current.method.id, methodologyPackId: pack.id, methodologyPackVersion: pack.version };
+    const formResult = appendUnique(lesson.selectedForms, formValue, (value) => `${value.methodologyPackId}@${value.methodologyPackVersion}:${value.methodId}:${value.formId}`, this.deps.ids, 'form', context.actorUserId, at);
     if (formResult.added) newlyAdded.push(formResult.added);
 
     if (newlyAdded.length === 0) {
@@ -470,6 +533,8 @@ export class ApplyMethodologyRecommendation {
       sourceRevision: source.meta.revision,
       affectedSemanticKeys: METHOD_DOWNSTREAM_KEYS
     });
+    this.deps.telemetry?.increment('methodology.method.accepted',1,{methodId:current.method.id,technologyId:technology.technologyId,packId:pack.id,packVersion:pack.version});
+    if(requestedTechniqueIds.length>0)this.deps.telemetry?.increment('methodology.technique.selected',requestedTechniqueIds.length,{methodId:current.method.id,packId:pack.id,packVersion:pack.version});
     return { lesson: saved, invalidations: await this.deps.invalidations.listOpen(context, lesson.id) };
   }
 }
@@ -480,15 +545,16 @@ export class RejectMethodologyRecommendation {
       lessons: LessonRepository;
       feedback: MethodologyFeedbackRepository;
       clock: Clock;
-      pack?: MethodologyPack;
+      registry?: MethodologyPackRegistry;
       planning?: CoursePlanningRepository;
+      telemetry?: Telemetry;
     }
   ) {}
 
   async execute(context: RequestContext, input: { lessonId: string; recommendationId: string }): Promise<void> {
     const lesson = await this.deps.lessons.getById(context, input.lessonId);
     if (!lesson) throw new ApplicationError('NOT_FOUND', `Lesson ${input.lessonId} was not found.`);
-    const pack = this.deps.pack ?? researchMethodologyPackV1;
+    const pack = resolveApprovedPack(lesson, this.deps.registry);
     const courseContext = this.deps.planning
       ? await this.deps.planning.getApprovedLessonContext(context, lesson.courseId, lesson.id)
       : null;
@@ -502,5 +568,6 @@ export class RejectMethodologyRecommendation {
       actorUserId: context.actorUserId,
       at: this.deps.clock.now().toISOString()
     });
+    this.deps.telemetry?.increment('methodology.method.rejected',1,{methodId:current.method.id,technologyId:current.technology.id,packId:pack.id,packVersion:pack.version});
   }
 }

@@ -90,6 +90,7 @@ export interface PageResult<T> {
 }
 
 export * from './lesson-governance.js';
+export * from './knowledge-space.js';
 export * from './ai-proposals.js';
 export * from './ai-proposal-processing.js';
 export * from './ai-proposal-application.js';
@@ -99,3 +100,4 @@ export * from './content-selection.js';
 export * from './scenario-context.js';
 export * from './lesson-design-artifacts.js';
 export * from './course-planning.js';
+export * from './pedagogy-governance.js';

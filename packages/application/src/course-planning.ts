@@ -65,10 +65,17 @@ export interface CourseSourceFragment {
   pageEnd?: number;
   text: string;
   contentHash: string;
+  knowledgeProvenance?: {
+    knowledgeSpaceId: string;
+    chunkId: string;
+    sourceRevision: string;
+    umkId: string;
+  };
 }
 
 export interface ApprovedCourseLessonContext {
   courseId: string;
+  knowledgeSpaceId?: string;
   planRevision: number;
   contextRevision: string;
   courseGoals: string[];

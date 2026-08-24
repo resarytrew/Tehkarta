@@ -1,4 +1,15 @@
-import type { OutcomeKind } from '@tehkarta/domain';
+import type { OutcomeKind, PedagogicalFocus } from '@tehkarta/domain';
+
+export interface TechnologyOption {
+  technologyId: string;
+  packId: string;
+  packVersion: string;
+  name: string;
+  description: string;
+  phases: Array<{ id: string; title: string; purpose: string }>;
+  constraints: string[];
+  antiPatterns: string[];
+}
 
 export interface MethodologyTechnique {
   id: string;
@@ -54,6 +65,8 @@ export interface MethodologyRecommendationBundle {
     };
   };
   recommendations: MethodologyRecommendation[];
+  technologyRevision: number;
+  profileInfluence?: { focus: PedagogicalFocus; note: string };
   courseContext?: {
     planRevision: number;
     contextRevision: string;

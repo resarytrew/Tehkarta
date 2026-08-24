@@ -18,11 +18,11 @@ const context: RequestContext = {
   permissions: ['course:read', 'lesson:read', 'lesson:write']
 };
 
-function field(
+function field<T = string>(
   fieldId: string,
-  value: string,
+  value: T,
   status: 'PROPOSED' | 'EDITED' | 'APPROVED'
-): GovernedField<string> {
+): GovernedField<T> {
   return {
     fieldId,
     value,
@@ -67,7 +67,12 @@ const lesson: Lesson = {
   order: 1,
   title: 'Экономика делает решающий рывок',
   durationMinutes: 45,
-  pedagogicalProfile: {},
+  pedagogicalProfile: {
+    style: field('style', 'CONSTRUCTIVIST' as const, 'APPROVED'),
+    communicationTone: field('tone', 'SUPPORTIVE' as const, 'APPROVED'),
+    focus: field('focus', 'DEPTH' as const, 'APPROVED')
+  },
+  pedagogicalTechnology: field('technology', { technologyId:'research-technology', name:'Исследовательская технология', methodologyPackId:'methodology-research-v1', methodologyPackVersion:'1.0.0' }, 'APPROVED'),
   designFreedom: {
     mode: 'BALANCED',
     contentFreedom: 'TEXTBOOK_PLUS',
@@ -79,14 +84,14 @@ const lesson: Lesson = {
     'Почему в XIX в. промышленная революция достигла огромных успехов?',
     'APPROVED'
   ),
-  bigIdea: field('big-idea', 'Технологии меняют экономическую структуру общества.', 'EDITED'),
+  bigIdea: field('big-idea', 'Технологии меняют экономическую структуру общества.', 'APPROVED'),
   outcomes: [
     field('outcome-approved', 'Объяснять причинно-следственные связи индустриализации.', 'APPROVED'),
     field('outcome-draft', 'Черновой результат не должен попасть в сценарий.', 'EDITED')
   ],
-  selectedMethods: [field('method', 'Проверка гипотез', 'APPROVED')],
-  selectedTechniques: [field('technique', 'Факт → доказательство → вывод', 'APPROVED')],
-  selectedForms: [field('form', 'Работа в парах', 'APPROVED')],
+  selectedMethods: [field('method', { methodId:'hypothesis-testing', name:'Проверка гипотез', technologyId:'research-technology', methodologyPackId:'methodology-research-v1', methodologyPackVersion:'1.0.0', targetOutcomeFieldId:'outcome-approved', targetOutcomeRevision:1, technologyRevision:1, pedagogicalProfileRevision:'1-1-1' }, 'APPROVED')],
+  selectedTechniques: [field('technique', { techniqueId:'fact-evidence-conclusion', name:'Факт → доказательство → вывод', methodId:'hypothesis-testing', methodologyPackId:'methodology-research-v1', methodologyPackVersion:'1.0.0' }, 'APPROVED')],
+  selectedForms: [field('form', { formId:'pair', name:'Работа в паре', methodId:'hypothesis-testing', methodologyPackId:'methodology-research-v1', methodologyPackVersion:'1.0.0' }, 'APPROVED')],
   contentItems: []
 };
 
@@ -228,7 +233,7 @@ test('scenario context contains only approved pedagogy and teacher-included UMK 
 
   assert.equal(result.readiness.canGenerateScenario, true);
   assert.deepEqual(result.readiness.missing, []);
-  assert.equal(result.concept.bigIdea, undefined, 'EDITED big idea must not enter authoritative context.');
+  assert.equal(result.concept.bigIdea, 'Технологии меняют экономическую структуру общества.');
   assert.deepEqual(result.outcomes, ['Объяснять причинно-следственные связи индустриализации.']);
   assert.deepEqual(result.methodology.methods, ['Проверка гипотез']);
   assert.deepEqual(result.content.mandatoryRp.map((item) => item.id), ['rp-required']);

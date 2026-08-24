@@ -26,7 +26,7 @@ interface RawCandidate {
   distinction?: string;
 }
 
-export const LESSON_DECISION_PROPOSAL_PROMPT_VERSION = 'lesson-decision-proposal-v1';
+export const LESSON_DECISION_PROPOSAL_PROMPT_VERSION = 'lesson-decision-proposal-v2-governed-pedagogy';
 
 function taskForAction(action: AiProposalAction): GenerationTask {
   return action === 'VARIANTS' ? 'VARIANTS' : 'REFORMULATE';

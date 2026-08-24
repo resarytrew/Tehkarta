@@ -17,14 +17,15 @@ import {
   type LessonDesignArtifactRepository,
   type LessonInvalidationRepository,
   type LessonRepository,
-  type MethodologyFeedbackRepository
+  type MethodologyFeedbackRepository,
+  type KnowledgeSpaceRepository
 } from '@tehkarta/application';
 import {
   AuthenticationError,
   type PasswordLoginService,
   type SessionService
 } from '@tehkarta/identity';
-import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
+import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext, Telemetry } from '@tehkarta/ports';
 import { registerAiProposalRoutes } from './ai-proposal-routes.js';
 import {
   requestContextFromPrincipal,
@@ -39,6 +40,8 @@ import { registerContentSelectionRoutes } from './content-selection-routes.js';
 import { registerCoursePlanningRoutes } from './course-planning-routes.js';
 import { registerMethodologyRoutes } from './methodology-routes.js';
 import { registerLessonWorkflowRoutes } from './lesson-workflow-routes.js';
+import { registerPedagogyRoutes } from './pedagogy-routes.js';
+import { registerKnowledgeSpaceRoutes } from './knowledge-space-routes.js';
 import { hashClientIp } from './security.js';
 
 export interface ApiDependencies {
@@ -54,9 +57,11 @@ export interface ApiDependencies {
   contentContext: LessonContentContextRepository;
   contentSelections?: LessonContentSelectionRepository;
   designArtifacts?: LessonDesignArtifactRepository;
+  knowledgeSpaces?: KnowledgeSpaceRepository;
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
+  telemetry?: Telemetry;
 }
 
 function applicationErrorStatus(code: ApplicationError['code']): number {
@@ -443,7 +448,18 @@ export async function createApiApp(
     ...(dependencies.coursePlanning ? { planning: dependencies.coursePlanning } : {}),
     authorization: dependencies.authorization,
     clock: dependencies.clock,
-    ids: dependencies.ids
+    ids: dependencies.ids,
+    ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {})
+  });
+
+  await registerPedagogyRoutes(app, {
+    auth: authRuntime,
+    lessons: dependencies.lessons,
+    invalidations: dependencies.invalidations,
+    authorization: dependencies.authorization,
+    clock: dependencies.clock,
+    ids: dependencies.ids,
+    ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {})
   });
 
   await registerContentContextRoutes(app, {
@@ -473,6 +489,17 @@ export async function createApiApp(
       lessons: dependencies.lessons,
       contentContext: dependencies.contentContext,
       artifacts: dependencies.designArtifacts,
+      authorization: dependencies.authorization,
+      clock: dependencies.clock,
+      ids: dependencies.ids,
+      ...(dependencies.telemetry ? { telemetry: dependencies.telemetry } : {})
+    });
+  }
+  if (dependencies.knowledgeSpaces) {
+    await registerKnowledgeSpaceRoutes(app, {
+      auth: authRuntime,
+      repository: dependencies.knowledgeSpaces,
+      courses: dependencies.courses,
       authorization: dependencies.authorization,
       clock: dependencies.clock,
       ids: dependencies.ids

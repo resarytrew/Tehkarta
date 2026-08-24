@@ -24,7 +24,9 @@ export function useScenario(dependencies: ScenarioDependencies) {
 
   useEffect(() => {
     if (!lesson) { setStages([]); return; }
-    setStages(artifact?.payload.stages ?? scenarioDefaults(lesson, context));
+    setStages(artifact?.payload.stages
+      ? artifact.payload.stages.map((stage) => ({ ...stage, technologyPhaseIds: Array.isArray(stage.technologyPhaseIds) ? stage.technologyPhaseIds : [] }))
+      : scenarioDefaults(lesson, context));
   }, [artifact?.revision, contextLessonVersion, contextRevision, lesson?.id, lesson?.version]);
 
   const totalMinutes = useMemo(() => stages.reduce((sum, stage) => sum + stage.minutes, 0), [stages]);
@@ -37,7 +39,12 @@ export function useScenario(dependencies: ScenarioDependencies) {
       stages,
       generatedFromLessonVersion: lesson.version,
       generatedFromCoursePlanRevision: context?.coursePlanning?.planRevision ?? 0,
-      generatedFromCourseContextRevision: context?.coursePlanning?.contextRevision ?? ''
+      generatedFromCourseContextRevision: context?.coursePlanning?.contextRevision ?? '',
+      technologyId: context?.methodology.technology?.technologyId,
+      methodologyPackId: context?.methodology.technology?.methodologyPackId,
+      methodologyPackVersion: context?.methodology.technology?.methodologyPackVersion,
+      technologyRevision: context?.methodology.technologyRevision,
+      pedagogicalProfileRevision: context?.methodology.pedagogicalProfileRevision
     });
   }, [context, lesson, saveArtifact, stages]);
 

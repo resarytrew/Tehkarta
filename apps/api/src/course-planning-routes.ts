@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
-import { extractText, getDocumentProxy } from 'unpdf';
 import {
   AddCourseSource,
   ApplicationError,
@@ -19,6 +18,7 @@ import {
   requireWorkspacePrincipal,
   type AuthRuntime
 } from './auth.js';
+import { extractDocumentText, normalizedDocumentMimeType } from './document-extraction.js';
 
 interface Dependencies {
   auth: AuthRuntime;
@@ -97,31 +97,6 @@ async function requirePermission(
   if (!allowed) throw new ApplicationError('FORBIDDEN', `You do not have permission to ${action}.`);
 }
 
-async function documentText(bytes: Uint8Array, mimeType: string): Promise<{ text: string; pageCount?: number }> {
-  if (mimeType === 'application/pdf') {
-    try {
-      const pdf = await getDocumentProxy(bytes);
-      const extracted = await extractText(pdf, { mergePages: true });
-      return { text: extracted.text, pageCount: extracted.totalPages };
-    } catch {
-      throw new ApplicationError('VALIDATION_FAILED', 'Не удалось прочитать PDF. Проверьте, что файл не повреждён и не защищён паролем.');
-    }
-  }
-  return { text: Buffer.from(bytes).toString('utf8') };
-}
-
-function normalizedMimeType(mimeType: string, filename: string): string {
-  const normalized = mimeType.trim().toLowerCase();
-  if (normalized === 'application/pdf' || normalized === 'text/plain' || normalized === 'text/markdown') {
-    return normalized;
-  }
-  const extension = filename.toLowerCase().split('.').pop();
-  if (extension === 'pdf') return 'application/pdf';
-  if (extension === 'md' || extension === 'markdown') return 'text/markdown';
-  if (extension === 'txt') return 'text/plain';
-  return normalized;
-}
-
 export async function registerCoursePlanningRoutes(
   app: FastifyInstance,
   dependencies: Dependencies
@@ -193,8 +168,8 @@ export async function registerCoursePlanningRoutes(
       const file = await request.file({ limits: { files: 1, fileSize: 10_485_760 } });
       if (!file) throw new ApplicationError('VALIDATION_FAILED', 'Document file is required.');
       const bytes = new Uint8Array(await file.toBuffer());
-      const mimeType = normalizedMimeType(file.mimetype, file.filename);
-      const extracted = await documentText(bytes, mimeType);
+      const mimeType = normalizedDocumentMimeType(file.mimetype, file.filename);
+      const extracted = await extractDocumentText(bytes, mimeType);
       return {
         data: await addSource.execute(context, request.params.courseId, {
           title: request.query.title?.trim() || file.filename,

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { researchMethodologyPackV1, validateMethodologyPack } from './methodology.js';
+import { methodologyPackRegistry } from './methodology-registry.js';
 
 test('research methodology pack has valid cross-references and time ranges', () => {
   assert.deepEqual(validateMethodologyPack(researchMethodologyPackV1), []);
@@ -27,5 +28,18 @@ test('all methodology time ranges are positive and ordered', () => {
   ]) {
     assert.ok(item.typicalMinutes.min > 0);
     assert.ok(item.typicalMinutes.max >= item.typicalMinutes.min);
+  }
+});
+
+test('registry publishes four valid and semantically distinct technology packs', () => {
+  const packs = methodologyPackRegistry.listPublished();
+  assert.equal(packs.length, 4);
+  assert.equal(new Set(packs.map((pack) => pack.technology.id)).size, 4);
+  for (const pack of packs) {
+    assert.deepEqual(validateMethodologyPack(pack), []);
+    assert.ok(pack.phases.length >= 3);
+    assert.ok(pack.methods.length >= 2);
+    assert.ok(pack.techniques.length >= 2);
+    assert.ok(pack.forms.length >= 2);
   }
 });

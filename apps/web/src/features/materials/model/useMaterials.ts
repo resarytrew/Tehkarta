@@ -45,7 +45,12 @@ export function useMaterials(dependencies: MaterialsDependencies) {
       generatedFromLessonVersion: lesson.version,
       generatedFromScenarioRevision: scenario.artifact?.revision ?? 0,
       generatedFromCoursePlanRevision: context?.coursePlanning?.planRevision ?? 0,
-      generatedFromCourseContextRevision: context?.coursePlanning?.contextRevision ?? ''
+      generatedFromCourseContextRevision: context?.coursePlanning?.contextRevision ?? '',
+      technologyId: context?.methodology.technology?.technologyId,
+      methodologyPackId: context?.methodology.technology?.methodologyPackId,
+      methodologyPackVersion: context?.methodology.technology?.methodologyPackVersion,
+      technologyRevision: context?.methodology.technologyRevision,
+      pedagogicalProfileRevision: context?.methodology.pedagogicalProfileRevision
     });
   }, [context, items, lesson, saveArtifact, scenario.artifact?.revision]);
 

@@ -1,0 +1,3 @@
+export type KnowledgeDocumentType = 'WORKING_PROGRAM' | 'TEXTBOOK' | 'METHOD_GUIDE' | 'ATLAS' | 'WORKBOOK' | 'ASSESSMENT' | 'LOCAL_MATERIAL';
+export interface KnowledgeSpace { id:string; workspaceId:string; subjectId:string; grade:number; umkId:string; status:'DRAFT'|'PUBLISHED'|'ARCHIVED'; createdAt:string; updatedAt:string }
+export interface KnowledgeDocument { id:string; knowledgeSpaceId:string; workspaceId:string; documentType:KnowledgeDocumentType; title:string; mimeType:string; sourceRevision:string; checksumSha256:string; status:'REVIEW'|'PUBLISHED'|'FAILED'; chunkCount:number; createdAt:string; publishedAt?:string }

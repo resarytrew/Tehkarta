@@ -41,7 +41,13 @@ test('course plan validation preserves explicit learning progression', () => {
 test('methodology recommendation identity is bound to approved course context revision', () => {
   const lesson: Lesson = {
     id: 'lesson-2', workspaceId: 'workspace', version: 1, courseId: 'course', sectionId: 'section', order: 2,
-    title: 'Общество в движении', durationMinutes: 45, pedagogicalProfile: {},
+    title: 'Общество в движении', durationMinutes: 45,
+    pedagogicalProfile: {
+      style: { fieldId:'style', value:'CONSTRUCTIVIST', meta:{ revision:1, source:'TEACHER', status:'APPROVED', updatedAt:'2026-08-24T00:00:00.000Z' } },
+      communicationTone: { fieldId:'tone', value:'SUPPORTIVE', meta:{ revision:1, source:'TEACHER', status:'APPROVED', updatedAt:'2026-08-24T00:00:00.000Z' } },
+      focus: { fieldId:'focus', value:'DEPTH', meta:{ revision:1, source:'TEACHER', status:'APPROVED', updatedAt:'2026-08-24T00:00:00.000Z' } }
+    },
+    pedagogicalTechnology: { fieldId:'technology', value:{ technologyId:'research-technology', name:'Исследовательская технология', methodologyPackId:'methodology-research-v1', methodologyPackVersion:'1.0.0' }, meta:{ revision:1, source:'TEACHER', status:'APPROVED', updatedAt:'2026-08-24T00:00:00.000Z' } },
     designFreedom: { mode: 'BALANCED', contentFreedom: 'TEXTBOOK_PLUS', methodFreedom: 'FLEXIBLE' },
     outcomes: [{ fieldId: 'outcome-1', value: 'Сравнивать социальные группы и объяснять причины изменений.', meta: { revision: 1, source: 'TEACHER', status: 'APPROVED', updatedAt: '2026-08-24T00:00:00.000Z' } }],
     selectedMethods: [], selectedTechniques: [], selectedForms: [], contentItems: []
