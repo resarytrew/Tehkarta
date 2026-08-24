@@ -1,0 +1,37 @@
+.skip-link {
+  position: fixed;
+  inset: 0 auto auto 1rem;
+  z-index: 20;
+  transform: translateY(-140%);
+  border-radius: 0 0 0.5rem 0.5rem;
+  background: #183f36;
+  color: #fff;
+  padding: 0.75rem 1rem;
+  transition: transform 180ms ease;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+.lesson-designer-skeleton {
+  display: grid;
+  gap: 1rem;
+  padding: 1.5rem;
+}
+
+.lesson-designer-skeleton div {
+  min-height: 5.5rem;
+  border-radius: 0.875rem;
+  background: linear-gradient(100deg, #edf1ee 20%, #f8faf8 38%, #edf1ee 56%);
+  background-size: 220% 100%;
+  animation: lesson-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes lesson-skeleton-shimmer {
+  to { background-position-x: -220%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lesson-designer-skeleton div { animation: none; }
+}

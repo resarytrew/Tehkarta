@@ -1,24 +1,12 @@
 import { useCallback, useState } from 'react';
-import { ApiRequestError, loginWithPassword } from './api.js';
+import { ApiRequestError } from './shared/api/ApiClient.js';
+import { loginWithPassword } from './shared/auth/sessionApi.js';
 import { App } from './App.js';
-import { LoginScreen } from './components/LoginScreen.js';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
-const WORKSPACE_STORAGE_KEY = 'tehkarta.workspaceId';
-const CSRF_STORAGE_KEY = 'tehkarta.csrfToken';
+import { LoginScreen } from './shared/auth/ui/LoginScreen.js';
+import { API_BASE_URL, clearStoredSession, CSRF_STORAGE_KEY, storedCsrfToken, storedWorkspaceId, WORKSPACE_STORAGE_KEY } from './shared/auth/sessionStorage.js';
 
 function hasSessionBootstrap(): boolean {
-  const workspaceId = (
-    window.localStorage.getItem(WORKSPACE_STORAGE_KEY) ??
-    import.meta.env.VITE_DEFAULT_WORKSPACE_ID ??
-    ''
-  ).trim();
-  const csrfToken = (
-    window.sessionStorage.getItem(CSRF_STORAGE_KEY) ??
-    import.meta.env.VITE_DEV_CSRF_TOKEN ??
-    ''
-  ).trim();
-  return Boolean(workspaceId && csrfToken);
+  return Boolean(storedWorkspaceId() && storedCsrfToken());
 }
 
 function loginErrorMessage(error: unknown): string {
@@ -36,8 +24,7 @@ export function AuthGate() {
   const [error, setError] = useState<string | null>(null);
 
   const endSession = useCallback(() => {
-    window.localStorage.removeItem(WORKSPACE_STORAGE_KEY);
-    window.sessionStorage.removeItem(CSRF_STORAGE_KEY);
+    clearStoredSession();
     setConnected(false);
     setError(null);
   }, []);

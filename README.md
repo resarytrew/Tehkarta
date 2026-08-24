@@ -61,6 +61,15 @@ pnpm e2e:critical
 
 Обычный CI дополнительно проверяет Methodical Constructor: approved-only recommendations, CSRF, explicit teacher application, downstream invalidation, durable reject feedback и persistence after reload.
 
+Frontend feature boundaries и браузерный smoke проверяются отдельно:
+
+```bash
+pnpm --filter @tehkarta/web test
+pnpm --filter @tehkarta/web test:e2e
+```
+
+Полный мутационный Playwright-поток запускается только с `TEHKARTA_E2E_MUTATIONS=1` на изолированной тестовой БД.
+
 ## Архитектура и правила
 
 Перед разработкой прочитать:
@@ -68,7 +77,8 @@ pnpm e2e:critical
 1. `RULS.md`;
 2. `TECHNICAL_DOCUMENTATION.md`;
 3. `docs/WORK_PLAN_24H.md`;
-4. релевантные `docs/adr/*`.
+4. `docs/architecture/frontend.md` для frontend-задач;
+5. релевантные `docs/adr/*`.
 
 Целевая инфраструктура описана Terraform-кодом для Yandex Cloud. Наличие IaC в репозитории **не означает**, что реальные облачные ресурсы уже provisioned: `terraform apply` требует операторских Yandex Cloud credentials и не выполняется в обычном CI.
 

@@ -219,7 +219,7 @@ packages/application + packages/ai
 Tehkarta/
 ├── apps/
 │   ├── api/                Fastify HTTP API
-│   ├── web/                React teacher workspace
+│   ├── web/                React teacher workspace с feature-oriented frontend boundaries
 │   └── worker/             durable AI job runtime
 ├── packages/
 │   ├── domain/             pure pedagogical/domain model
@@ -237,6 +237,20 @@ Tehkarta/
 ├── RULS.md                 mandatory rules for AI coding agents
 └── TECHNICAL_DOCUMENTATION.md
 ```
+
+### Frontend organization
+
+`apps/web/src/App.tsx` — небольшой composition root. Крупная композиция находится в `app/TeacherWorkspace.tsx`, aggregate READ/LOAD/REFRESH урока — в `features/lesson-designer/model/useLessonWorkspace.ts`, а mutations принадлежат отдельным feature hooks.
+
+```text
+app/        shell, workspace selection, course composition
+entities/   course/lesson/proposal/methodology/content/artifact/session models и entity API
+features/   course planning, lesson intent, AI proposals, methodology, content, workflow,
+            scenario, materials, expertise, lesson map
+shared/     ApiClient, error recovery, auth/session, notifications
+```
+
+Общий API client больше не владеет предметными endpoint-ами. Feature API используют общий transport для credentials, workspace scope и CSRF. Общая error policy различает session expiry, forbidden, stale version, dependency stale, validation, network и server failures. Подробности: `docs/architecture/frontend.md`.
 
 ---
 
@@ -689,6 +703,8 @@ pnpm build
 pnpm test
 pnpm db:smoke
 ```
+
+Frontend дополнительно проверяется Vitest unit/component suite и Playwright browser flow. Полный мутационный Playwright-сценарий требует изолированной тестовой БД и включается через `TEHKARTA_E2E_MUTATIONS=1`.
 
 Критические integration/E2E tests проверяют:
 
