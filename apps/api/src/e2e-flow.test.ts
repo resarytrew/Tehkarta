@@ -17,6 +17,7 @@ import {
   PostgresLessonAiProposalApplicationRepository,
   PostgresLessonAiProposalRepository,
   PostgresLessonContentContextRepository,
+  PostgresLessonContentSelectionRepository,
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
   PostgresLoginThrottleRepository,
@@ -106,8 +107,9 @@ maybeTest('HTTP login → approve → AI worker → READY → explicit Apply per
   const proposalApplication = new PostgresLessonAiProposalApplicationRepository(pool);
   const methodologyFeedback = new PostgresMethodologyFeedbackRepository(pool);
   const contentContext = new PostgresLessonContentContextRepository(pool);
+  const contentSelections = new PostgresLessonContentSelectionRepository(pool);
   const config: ApiConfig = { host:'127.0.0.1', port:8080, environment:'test', allowedOrigins:['http://localhost:5173'], sessionCookieName:'tehkarta_session', secureCookies:false, sessionTtlSeconds:3600, authIpHashKey:authKey, trustProxy:false };
-  const app = await createApiApp(config, { sessions, passwordLogin, courses, lessons, invalidations, proposals, proposalApplication, methodologyFeedback, contentContext, authorization:new WorkspaceAuthorizationPolicy(), clock, ids:idGenerator });
+  const app = await createApiApp(config, { sessions, passwordLogin, courses, lessons, invalidations, proposals, proposalApplication, methodologyFeedback, contentContext, contentSelections, authorization:new WorkspaceAuthorizationPolicy(), clock, ids:idGenerator });
 
   try {
     const login = await app.inject({ method:'POST', url:'/api/v1/auth/login', payload:{ email, password } });
