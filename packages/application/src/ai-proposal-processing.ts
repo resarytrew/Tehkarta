@@ -83,6 +83,32 @@ export interface LessonAiProposalProcessingRepository {
   ): Promise<LessonAiProposal>;
 }
 
+export interface AiInvocationTraceInput {
+  id: string;
+  lessonId: string;
+  proposalId: string;
+  jobId: string;
+  taskType: string;
+  provider: string;
+  model: string;
+  promptVersion: string;
+  routingPolicyVersion: string;
+  inputHash: string;
+  status: 'SUCCEEDED' | 'FAILED';
+  startedAt: string;
+  completedAt: string;
+  latencyMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  costMicrounits?: number;
+  errorClass?: string;
+  metadata?: Readonly<Record<string, unknown>>;
+}
+
+export interface AiInvocationTraceRepository {
+  record(context: RequestContext, input: AiInvocationTraceInput): Promise<void>;
+}
+
 export interface ApprovedProposalGenerationContext {
   course: {
     id: string;
@@ -120,10 +146,17 @@ export interface ApprovedProposalGenerationContext {
 
 export interface ProposalGenerationResult {
   candidates: AiProposalCandidate[];
+  taskType: string;
   provider: string;
   model: string;
   promptVersion: string;
   routingPolicyVersion: string;
+  inputHash: string;
+  latencyMs?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  costMicrounits?: number;
+  providerRequestId?: string;
 }
 
 export interface LessonDecisionProposalGenerator {
@@ -253,7 +286,8 @@ function validateGeneratedCandidates(
   if (candidates.length !== proposal.candidateCountRequested) {
     throw new ApplicationError(
       'EXTERNAL_SERVICE_FAILED',
-      `AI returned ${candidates.length} candidates; ${proposal.candidateCountRequested} were requested.`
+      `AI returned ${candidates.length} candidates; ${proposal.candidateCountRequested} were requested.`,
+      { retryable: false, errorClass: 'INVALID_RESPONSE' }
     );
   }
 
@@ -267,19 +301,22 @@ function validateGeneratedCandidates(
     if (!id || ids.has(id)) {
       throw new ApplicationError(
         'EXTERNAL_SERVICE_FAILED',
-        `AI candidate ${index + 1} has a missing or duplicate id.`
+        `AI candidate ${index + 1} has a missing or duplicate id.`,
+        { retryable: false, errorClass: 'INVALID_RESPONSE' }
       );
     }
     if (value.length < 3 || value.length > 4_000) {
       throw new ApplicationError(
         'EXTERNAL_SERVICE_FAILED',
-        `AI candidate ${index + 1} has an invalid value length.`
+        `AI candidate ${index + 1} has an invalid value length.`,
+        { retryable: false, errorClass: 'INVALID_RESPONSE' }
       );
     }
     if (rationale.length < 3 || rationale.length > 2_000) {
       throw new ApplicationError(
         'EXTERNAL_SERVICE_FAILED',
-        `AI candidate ${index + 1} has an invalid rationale length.`
+        `AI candidate ${index + 1} has an invalid rationale length.`,
+        { retryable: false, errorClass: 'INVALID_RESPONSE' }
       );
     }
 
@@ -293,26 +330,147 @@ function validateGeneratedCandidates(
   });
 }
 
+function startedAt(completedAt: string, latencyMs?: number): string {
+  if (latencyMs === undefined || !Number.isFinite(latencyMs) || latencyMs < 0) return completedAt;
+  return new Date(new Date(completedAt).getTime() - latencyMs).toISOString();
+}
+
+function stringDetail(
+  details: Readonly<Record<string, unknown>> | undefined,
+  key: string
+): string | undefined {
+  const value = details?.[key];
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function numberDetail(
+  details: Readonly<Record<string, unknown>> | undefined,
+  key: string
+): number | undefined {
+  const value = details?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function successTrace(input: {
+  proposal: LessonAiProposal;
+  generated: ProposalGenerationResult;
+  jobId: string;
+  attemptCount: number;
+  completedAt: string;
+}): AiInvocationTraceInput {
+  return {
+    id: `${input.jobId}:attempt:${input.attemptCount}`,
+    lessonId: input.proposal.lessonId,
+    proposalId: input.proposal.id,
+    jobId: input.jobId,
+    taskType: input.generated.taskType,
+    provider: input.generated.provider,
+    model: input.generated.model,
+    promptVersion: input.generated.promptVersion,
+    routingPolicyVersion: input.generated.routingPolicyVersion,
+    inputHash: input.generated.inputHash,
+    status: 'SUCCEEDED',
+    startedAt: startedAt(input.completedAt, input.generated.latencyMs),
+    completedAt: input.completedAt,
+    ...(input.generated.latencyMs !== undefined ? { latencyMs: input.generated.latencyMs } : {}),
+    ...(input.generated.inputTokens !== undefined
+      ? { inputTokens: input.generated.inputTokens }
+      : {}),
+    ...(input.generated.outputTokens !== undefined
+      ? { outputTokens: input.generated.outputTokens }
+      : {}),
+    ...(input.generated.costMicrounits !== undefined
+      ? { costMicrounits: input.generated.costMicrounits }
+      : {}),
+    metadata: {
+      action: input.proposal.action,
+      semanticKey: input.proposal.semanticKey,
+      candidateCountRequested: input.proposal.candidateCountRequested,
+      ...(input.generated.providerRequestId
+        ? { providerRequestId: input.generated.providerRequestId }
+        : {})
+    }
+  };
+}
+
+function failureTrace(input: {
+  error: unknown;
+  proposal: LessonAiProposal;
+  jobId: string;
+  attemptCount: number;
+  completedAt: string;
+}): AiInvocationTraceInput | null {
+  if (!(input.error instanceof ApplicationError)) return null;
+  const details = input.error.details;
+  const provider = stringDetail(details, 'provider');
+  const model = stringDetail(details, 'model');
+  const promptVersion = stringDetail(details, 'promptVersion');
+  const routingPolicyVersion = stringDetail(details, 'routingPolicyVersion');
+  const inputHash = stringDetail(details, 'inputHash');
+  const taskType = stringDetail(details, 'taskType');
+  if (!provider || !model || !promptVersion || !routingPolicyVersion || !inputHash || !taskType) {
+    return null;
+  }
+
+  const latencyMs = numberDetail(details, 'latencyMs');
+  const errorClass = stringDetail(details, 'errorClass') ?? 'UNKNOWN';
+  const providerRequestId = stringDetail(details, 'providerRequestId');
+  const statusCode = numberDetail(details, 'statusCode');
+  const retryAfterMs = numberDetail(details, 'retryAfterMs');
+  const inputTokens = numberDetail(details, 'inputTokens');
+  const outputTokens = numberDetail(details, 'outputTokens');
+  const costMicrounits = numberDetail(details, 'costMicrounits');
+
+  return {
+    id: `${input.jobId}:attempt:${input.attemptCount}`,
+    lessonId: input.proposal.lessonId,
+    proposalId: input.proposal.id,
+    jobId: input.jobId,
+    taskType,
+    provider,
+    model,
+    promptVersion,
+    routingPolicyVersion,
+    inputHash,
+    status: 'FAILED',
+    startedAt: startedAt(input.completedAt, latencyMs),
+    completedAt: input.completedAt,
+    ...(latencyMs !== undefined ? { latencyMs } : {}),
+    ...(inputTokens !== undefined ? { inputTokens } : {}),
+    ...(outputTokens !== undefined ? { outputTokens } : {}),
+    ...(costMicrounits !== undefined ? { costMicrounits } : {}),
+    errorClass,
+    metadata: {
+      action: input.proposal.action,
+      semanticKey: input.proposal.semanticKey,
+      ...(providerRequestId ? { providerRequestId } : {}),
+      ...(statusCode !== undefined ? { statusCode } : {}),
+      ...(retryAfterMs !== undefined ? { retryAfterMs } : {})
+    }
+  };
+}
+
 export interface ProcessLessonDecisionProposalDependencies {
   lessons: LessonRepository;
   courses: CourseRepository;
   proposals: LessonAiProposalProcessingRepository;
   generator: LessonDecisionProposalGenerator;
   clock: Clock;
+  invocations?: AiInvocationTraceRepository;
 }
 
 /**
  * Executes one already-claimed proposal job. The processor never writes to
  * lesson_decisions. It either produces a separate READY proposal or marks it
- * STALE if teacher state moved. Generation failures are intentionally left for
- * the queue runner to classify as retryable or terminal.
+ * STALE if teacher state moved.
  */
 export class ProcessLessonDecisionProposal {
   constructor(private readonly deps: ProcessLessonDecisionProposalDependencies) {}
 
   async execute(
     context: RequestContext,
-    proposalId: string
+    proposalId: string,
+    execution?: { jobId: string; attemptCount: number }
   ): Promise<LessonAiProposal> {
     const proposal = await this.deps.proposals.getById(context, proposalId);
     if (!proposal) {
@@ -350,12 +508,42 @@ export class ProcessLessonDecisionProposal {
     await this.deps.proposals.markRunning(context, { proposalId: proposal.id, now });
 
     const targetValue = currentTargetField(lesson, proposal)?.value;
-    const generated = await this.deps.generator.generate({
-      proposal,
-      ...(targetValue !== undefined ? { targetValue } : {}),
-      context: buildApprovedProposalContext(course, lesson)
-    });
+    let generated: ProposalGenerationResult;
+    try {
+      generated = await this.deps.generator.generate({
+        proposal,
+        ...(targetValue !== undefined ? { targetValue } : {}),
+        context: buildApprovedProposalContext(course, lesson)
+      });
+    } catch (error) {
+      if (this.deps.invocations && execution) {
+        const completedAt = this.deps.clock.now().toISOString();
+        const trace = failureTrace({
+          error,
+          proposal,
+          jobId: execution.jobId,
+          attemptCount: execution.attemptCount,
+          completedAt
+        });
+        if (trace) await this.deps.invocations.record(context, trace);
+      }
+      throw error;
+    }
+
     const candidates = validateGeneratedCandidates(proposal, generated.candidates);
+    if (this.deps.invocations && execution) {
+      const completedAt = this.deps.clock.now().toISOString();
+      await this.deps.invocations.record(
+        context,
+        successTrace({
+          proposal,
+          generated,
+          jobId: execution.jobId,
+          attemptCount: execution.attemptCount,
+          completedAt
+        })
+      );
+    }
 
     return this.deps.proposals.markReady(context, {
       proposalId: proposal.id,
@@ -371,22 +559,38 @@ export class ProcessLessonDecisionProposal {
 
 function processingError(error: unknown): Readonly<Record<string, unknown>> {
   if (error instanceof ApplicationError) {
-    return { code: error.code, message: error.message };
+    const errorClass = stringDetail(error.details, 'errorClass');
+    const retryable = error.details?.retryable === true;
+    return {
+      code: error.code,
+      message: error.message,
+      ...(errorClass ? { errorClass } : {}),
+      retryable
+    };
   }
   return {
     code: 'UNEXPECTED_GENERATION_ERROR',
-    message: error instanceof Error ? error.message : 'Unknown generation error.'
+    message: error instanceof Error ? error.message : 'Unknown generation error.',
+    retryable: false
   };
 }
 
 function isRetryableProcessingError(error: unknown): boolean {
-  if (!(error instanceof ApplicationError)) return true;
-  return error.code === 'EXTERNAL_SERVICE_FAILED';
+  return (
+    error instanceof ApplicationError &&
+    error.code === 'EXTERNAL_SERVICE_FAILED' &&
+    error.details?.retryable === true
+  );
 }
 
-function retryTime(now: Date, attemptCount: number): string {
-  const seconds = Math.min(300, 15 * 2 ** Math.max(0, attemptCount - 1));
-  return new Date(now.getTime() + seconds * 1_000).toISOString();
+function retryTime(now: Date, attemptCount: number, error: unknown): string {
+  const exponentialMs = Math.min(300_000, 15_000 * 2 ** Math.max(0, attemptCount - 1));
+  const providerRetryAfter =
+    error instanceof ApplicationError ? numberDetail(error.details, 'retryAfterMs') : undefined;
+  const boundedProviderMs = providerRetryAfter === undefined
+    ? 0
+    : Math.min(900_000, Math.max(0, providerRetryAfter));
+  return new Date(now.getTime() + Math.max(exponentialMs, boundedProviderMs)).toISOString();
 }
 
 function workerContext(job: ClaimedAsyncJob): RequestContext {
@@ -449,7 +653,10 @@ export class RunNextLessonDecisionProposalJob {
     }
 
     try {
-      const proposal = await this.deps.processor.execute(context, proposalId);
+      const proposal = await this.deps.processor.execute(context, proposalId, {
+        jobId: job.id,
+        attemptCount: job.attemptCount
+      });
       await this.deps.jobs.succeed({
         jobId: job.id,
         workerId,
@@ -491,7 +698,7 @@ export class RunNextLessonDecisionProposalJob {
         now: failedAt.toISOString(),
         error: payload,
         retryable,
-        ...(retryable ? { retryAt: retryTime(failedAt, job.attemptCount) } : {})
+        ...(retryable ? { retryAt: retryTime(failedAt, job.attemptCount, error) } : {})
       });
 
       return retryable
