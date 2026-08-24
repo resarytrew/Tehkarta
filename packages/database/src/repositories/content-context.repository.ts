@@ -65,6 +65,10 @@ interface UmkRow {
   source_title: string;
   rights_basis: string;
   access_level: SourceAccessLevel;
+  selection_decision: 'INCLUDED' | 'EXCLUDED' | null;
+  selection_revision: number | null;
+  selection_actor_user_id: string | null;
+  selection_updated_at: Date | null;
 }
 
 function sourceFromRequirement(row: RequirementRow): ContentContextSource | null {
@@ -123,6 +127,13 @@ function mapUmk(row: UmkRow): LessonUmkEvidenceItem {
 
   const pageLabel = pages(row.page_start, row.page_end);
   const title = row.unit_title?.trim() || row.parent_title?.trim() || row.unit_type;
+  const selection: LessonUmkEvidenceItem['selection'] = {
+    state: row.selection_decision ?? 'UNDECIDED'
+  };
+  if (row.selection_revision !== null) selection.revision = row.selection_revision;
+  if (row.selection_actor_user_id) selection.actorUserId = row.selection_actor_user_id;
+  if (row.selection_updated_at) selection.updatedAt = row.selection_updated_at.toISOString();
+
   return {
     mappingId: row.mapping_id,
     sourceUnitId: row.source_unit_id,
@@ -135,7 +146,8 @@ function mapUmk(row: UmkRow): LessonUmkEvidenceItem {
     ...(pageLabel ? { pages: pageLabel } : {}),
     ...(row.text_content ? { text: row.text_content } : {}),
     textRestricted: row.has_text && row.access_level !== 'FULL',
-    source
+    source,
+    selection
   };
 }
 
@@ -249,7 +261,11 @@ export class PostgresLessonContentContextRepository implements LessonContentCont
          sd.source_kind,
          sd.title AS source_title,
          sd.rights_basis,
-         sd.access_level
+         sd.access_level,
+         lcs.decision AS selection_decision,
+         lcs.revision AS selection_revision,
+         lcs.actor_user_id AS selection_actor_user_id,
+         lcs.updated_at AS selection_updated_at
        FROM content_mappings cm
        JOIN source_units su ON su.id = cm.source_unit_id
        JOIN source_documents sd
@@ -259,6 +275,11 @@ export class PostgresLessonContentContextRepository implements LessonContentCont
          ON cps.content_pack_id = cm.content_pack_id
         AND cps.source_document_id = sd.id
        LEFT JOIN source_units parent ON parent.id = su.parent_id
+       LEFT JOIN lesson_content_selections lcs
+         ON lcs.workspace_id = $5
+        AND lcs.lesson_id = $6
+        AND lcs.source_kind = 'UMK'
+        AND lcs.source_ref_id = cm.id
        WHERE cm.content_pack_id = $1
          AND cm.review_status = 'APPROVED'
          AND (
@@ -275,8 +296,18 @@ export class PostgresLessonContentContextRepository implements LessonContentCont
          cps.ordinal,
          su.ordinal,
          cm.id`,
-      [row.content_pack_id, row.curriculum_lesson_id, row.curriculum_section_id, row.curriculum_course_id]
+      [
+        row.content_pack_id,
+        row.curriculum_lesson_id,
+        row.curriculum_section_id,
+        row.curriculum_course_id,
+        context.workspaceId,
+        lessonId
+      ]
     );
+
+    const curriculumRequirements = requirements.rows.map(mapRequirement);
+    const umkEvidence = umk.rows.map(mapUmk);
 
     return {
       lessonId: row.lesson_id,
@@ -292,8 +323,20 @@ export class PostgresLessonContentContextRepository implements LessonContentCont
         version: row.content_pack_version,
         title: row.content_pack_title
       },
-      curriculumRequirements: requirements.rows.map(mapRequirement),
-      umkEvidence: umk.rows.map(mapUmk),
+      curriculumRequirements,
+      umkEvidence,
+      approvedContentSet: {
+        mandatoryRequirementIds: curriculumRequirements.map((requirement) => requirement.id),
+        includedUmkMappingIds: umkEvidence
+          .filter((item) => item.selection.state === 'INCLUDED')
+          .map((item) => item.mappingId),
+        excludedUmkMappingIds: umkEvidence
+          .filter((item) => item.selection.state === 'EXCLUDED')
+          .map((item) => item.mappingId),
+        undecidedUmkMappingIds: umkEvidence
+          .filter((item) => item.selection.state === 'UNDECIDED')
+          .map((item) => item.mappingId)
+      },
       aiSupplemental: []
     };
   }
