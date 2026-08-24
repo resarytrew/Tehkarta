@@ -15,7 +15,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "echo 'Database integration tests run in CI smoke job'",
     "migrate": "tsx src/migrate.ts",
-    "smoke": "tsx src/smoke.ts && tsx src/proposal-dismiss-smoke.ts && tsx src/proposal-smoke.ts && tsx src/auth-smoke.ts",
+    "smoke": "tsx src/smoke.ts && tsx src/proposal-dismiss-smoke.ts && tsx src/proposal-smoke.ts && tsx src/auth-smoke.ts && tsx src/scenario-smoke.ts",
     "bootstrap-dev": "tsx src/bootstrap-dev.ts"
   },
   "dependencies": {
