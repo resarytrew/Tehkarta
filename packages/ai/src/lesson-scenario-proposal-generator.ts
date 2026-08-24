@@ -191,7 +191,7 @@ function parseResponse(value: unknown, expectedCount: number): RawScenarioCandid
         throw new Error(`Scenario stage ${stageIndex + 1} is missing required fields.`);
       }
 
-      const contentRefs = stage.contentRefs.map((rawRef) => {
+      const contentRefs: RawScenarioStage['contentRefs'] = stage.contentRefs.map((rawRef) => {
         if (!rawRef || typeof rawRef !== 'object' || Array.isArray(rawRef)) {
           throw new Error(`Scenario stage ${stageIndex + 1} has an invalid content reference.`);
         }
@@ -202,7 +202,8 @@ function parseResponse(value: unknown, expectedCount: number): RawScenarioCandid
         ) {
           throw new Error(`Scenario stage ${stageIndex + 1} has an invalid content reference.`);
         }
-        return { kind: ref.kind, id: ref.id };
+        const kind: 'RP_REQUIREMENT' | 'UMK_MAPPING' = ref.kind;
+        return { kind, id: ref.id };
       });
 
       const parsed: RawScenarioStage = {
