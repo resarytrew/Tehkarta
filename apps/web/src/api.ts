@@ -2,6 +2,7 @@ import type {
   AiProposalAction,
   ApiData,
   ApiErrorPayload,
+  ApplyAiProposalResponse,
   CoreDecisionKey,
   Course,
   CourseSummary,
@@ -157,6 +158,25 @@ export class TehkartaApiClient {
       `/api/v1/lessons/${encodeURIComponent(lessonId)}/ai-proposals/${encodeURIComponent(proposalId)}`
     );
     return response.data;
+  }
+
+  applyAiProposalCandidate(input: {
+    lessonId: string;
+    proposalId: string;
+    candidateId: string;
+    expectedLessonVersion: number;
+  }): Promise<ApplyAiProposalResponse> {
+    return this.request<ApplyAiProposalResponse>(
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/ai-proposals/${encodeURIComponent(input.proposalId)}/apply`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          candidateId: input.candidateId,
+          expectedLessonVersion: input.expectedLessonVersion
+        })
+      },
+      { csrf: true }
+    );
   }
 
   async requestAiProposal(input: {

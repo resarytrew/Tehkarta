@@ -8,6 +8,7 @@ import {
   EditCoreLessonDecision,
   type CoreLessonDecisionKey,
   type CourseRepository,
+  type LessonAiProposalApplicationRepository,
   type LessonAiProposalRepository,
   type LessonInvalidationRepository,
   type LessonRepository
@@ -36,6 +37,7 @@ export interface ApiDependencies {
   lessons: LessonRepository;
   invalidations: LessonInvalidationRepository;
   proposals: LessonAiProposalRepository;
+  proposalApplication: LessonAiProposalApplicationRepository;
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
@@ -397,7 +399,9 @@ export async function createApiApp(
   await registerAiProposalRoutes(app, {
     auth: authRuntime,
     lessons: dependencies.lessons,
+    invalidations: dependencies.invalidations,
     proposals: dependencies.proposals,
+    proposalApplication: dependencies.proposalApplication,
     authorization: dependencies.authorization,
     clock: dependencies.clock,
     ids: dependencies.ids

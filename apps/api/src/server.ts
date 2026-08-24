@@ -4,6 +4,7 @@ import {
   databaseConfigFromEnv,
   PostgresCourseRepository,
   PostgresIdentityRepository,
+  PostgresLessonAiProposalApplicationRepository,
   PostgresLessonAiProposalRepository,
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
@@ -64,13 +65,17 @@ const passwordLogin = new PasswordLoginService({
   dummyPasswordHash
 });
 
+const proposalRepository = new PostgresLessonAiProposalRepository(pool);
+const proposalApplicationRepository = new PostgresLessonAiProposalApplicationRepository(pool);
+
 const app = await createApiApp(config, {
   sessions,
   passwordLogin,
   courses: new PostgresCourseRepository(pool),
   lessons: new PostgresLessonRepository(pool),
   invalidations: new PostgresLessonInvalidationRepository(pool),
-  proposals: new PostgresLessonAiProposalRepository(pool),
+  proposals: proposalRepository,
+  proposalApplication: proposalApplicationRepository,
   authorization: new WorkspaceAuthorizationPolicy(),
   clock,
   ids

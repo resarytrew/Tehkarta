@@ -45,6 +45,11 @@ export interface LessonAiProposal {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  appliedCandidateId?: string;
+  appliedDecisionId?: string;
+  appliedDecisionRevision?: number;
+  appliedBy?: string;
+  appliedAt?: string;
 }
 
 export interface QueueLessonAiProposalInput {

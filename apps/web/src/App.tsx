@@ -92,6 +92,9 @@ function errorMessage(error: unknown): string {
   if (error instanceof ApiRequestError) {
     if (error.status === 401) return 'Сессия завершена. Выполните вход ещё раз.';
     if (error.status === 403) return error.message || 'Недостаточно прав для этой рабочей области.';
+    if (error.status === 409 && error.payload.code === 'DEPENDENCY_STALE') {
+      return 'AI-предложение устарело после изменений урока. Запросите новый вариант на основе актуального решения.';
+    }
     if (error.status === 409) {
       return 'Данные урока изменились в другой вкладке. Актуальная версия уже загружается.';
     }
@@ -132,6 +135,10 @@ export function App({ onSessionEnded }: AppProps) {
   const [loading, setLoading] = useState(false);
   const [mutatingKey, setMutatingKey] = useState<CoreDecisionKey | null>(null);
   const [aiRequestKey, setAiRequestKey] = useState<CoreDecisionKey | null>(null);
+  const [applyingAiCandidate, setApplyingAiCandidate] = useState<{
+    proposalId: string;
+    candidateId: string;
+  } | null>(null);
   const [fatalError, setFatalError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -166,6 +173,11 @@ export function App({ onSessionEnded }: AppProps) {
       setLesson(nextLesson);
       setInvalidations(nextInvalidations);
       setProposals(nextProposals);
+      setLessons((current) =>
+        current.map((summary) =>
+          summary.id === nextLesson.id ? { ...summary, version: nextLesson.version } : summary
+        )
+      );
       persistSelection(nextLesson.courseId, nextLesson.id);
     },
     [api]
@@ -370,6 +382,40 @@ export function App({ onSessionEnded }: AppProps) {
     }
   }
 
+  async function applyAiCandidate(proposalId: string, candidateId: string): Promise<void> {
+    if (!api || !lesson) return;
+    setApplyingAiCandidate({ proposalId, candidateId });
+    setNotice(null);
+
+    try {
+      const response = await api.applyAiProposalCandidate({
+        lessonId: lesson.id,
+        proposalId,
+        candidateId,
+        expectedLessonVersion: lesson.version
+      });
+      setLesson(response.data);
+      setInvalidations(response.invalidations);
+      setProposals((current) => putProposalFirst(current, response.proposal));
+      setLessons((current) =>
+        current.map((summary) =>
+          summary.id === response.data.id
+            ? { ...summary, version: response.data.version }
+            : summary
+        )
+      );
+      setNotice(
+        'AI-вариант явно применён педагогом. Новая формулировка сохранена как утверждённое решение педагога; происхождение AI осталось в истории ревизии.'
+      );
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCurrentLesson();
+      throw new Error(errorMessage(error));
+    } finally {
+      setApplyingAiCandidate(null);
+    }
+  }
+
   async function signOut(): Promise<void> {
     try {
       if (api && csrfToken) await api.logout();
@@ -513,23 +559,33 @@ export function App({ onSessionEnded }: AppProps) {
                     </p>
                   </div>
 
-                  {(Object.keys(decisionCopy) as CoreDecisionKey[]).map((semanticKey) => (
-                    <GovernedFieldCard
-                      key={semanticKey}
-                      semanticKey={semanticKey}
-                      title={decisionCopy[semanticKey].title}
-                      description={decisionCopy[semanticKey].description}
-                      field={lesson[semanticKey]}
-                      busy={mutatingKey === semanticKey}
-                      aiBusy={aiRequestKey === semanticKey}
-                      latestProposal={proposals.find(
-                        (proposal) => proposal.semanticKey === semanticKey
-                      )}
-                      onSaveDraft={(value) => saveDraft(semanticKey, value)}
-                      onApply={(value) => applyDecision(semanticKey, value)}
-                      onAiAction={aiAction}
-                    />
-                  ))}
+                  {(Object.keys(decisionCopy) as CoreDecisionKey[]).map((semanticKey) => {
+                    const latestProposal = proposals.find(
+                      (proposal) => proposal.semanticKey === semanticKey
+                    );
+                    const applyingCandidateId =
+                      latestProposal && applyingAiCandidate?.proposalId === latestProposal.id
+                        ? applyingAiCandidate.candidateId
+                        : null;
+
+                    return (
+                      <GovernedFieldCard
+                        key={semanticKey}
+                        semanticKey={semanticKey}
+                        title={decisionCopy[semanticKey].title}
+                        description={decisionCopy[semanticKey].description}
+                        field={lesson[semanticKey]}
+                        busy={mutatingKey === semanticKey}
+                        aiBusy={aiRequestKey === semanticKey}
+                        latestProposal={latestProposal}
+                        applyingAiCandidateId={applyingCandidateId}
+                        onSaveDraft={(value) => saveDraft(semanticKey, value)}
+                        onApply={(value) => applyDecision(semanticKey, value)}
+                        onAiAction={aiAction}
+                        onApplyAiCandidate={applyAiCandidate}
+                      />
+                    );
+                  })}
                 </section>
 
                 <aside className="workspace-side-column">

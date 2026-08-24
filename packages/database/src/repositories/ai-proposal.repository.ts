@@ -36,6 +36,11 @@ interface ProposalRow {
   created_at: Date;
   updated_at: Date;
   completed_at: Date | null;
+  applied_candidate_id: string | null;
+  applied_decision_id: string | null;
+  applied_decision_revision: number | null;
+  applied_by: string | null;
+  applied_at: Date | null;
 }
 
 function candidates(value: unknown): AiProposalCandidate[] {
@@ -86,6 +91,13 @@ function mapProposal(row: ProposalRow): LessonAiProposal {
   const error = errorPayload(row.error_json);
   if (error) proposal.error = error;
   if (row.completed_at) proposal.completedAt = row.completed_at.toISOString();
+  if (row.applied_candidate_id) proposal.appliedCandidateId = row.applied_candidate_id;
+  if (row.applied_decision_id) proposal.appliedDecisionId = row.applied_decision_id;
+  if (row.applied_decision_revision !== null) {
+    proposal.appliedDecisionRevision = row.applied_decision_revision;
+  }
+  if (row.applied_by) proposal.appliedBy = row.applied_by;
+  if (row.applied_at) proposal.appliedAt = row.applied_at.toISOString();
 
   return proposal;
 }
@@ -96,7 +108,9 @@ const SELECT_COLUMNS = `
   candidate_count_requested, teacher_instruction, candidates_json,
   async_job_id, idempotency_key, requested_by, provider, model,
   prompt_version, routing_policy_version, error_json,
-  created_at, updated_at, completed_at
+  created_at, updated_at, completed_at,
+  applied_candidate_id, applied_decision_id, applied_decision_revision,
+  applied_by, applied_at
 `;
 
 async function existingByIdempotency(

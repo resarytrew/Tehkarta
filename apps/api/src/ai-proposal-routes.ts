@@ -1,10 +1,13 @@
 import type { FastifyInstance } from 'fastify';
 import {
   ApplicationError,
+  ApplyLessonAiProposalCandidate,
   RequestCoreDecisionAiProposal,
   type AiProposalAction,
   type CoreLessonDecisionKey,
+  type LessonAiProposalApplicationRepository,
   type LessonAiProposalRepository,
+  type LessonInvalidationRepository,
   type LessonRepository
 } from '@tehkarta/application';
 import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
@@ -18,7 +21,9 @@ import {
 export interface AiProposalRouteDependencies {
   auth: AuthRuntime;
   lessons: LessonRepository;
+  invalidations: LessonInvalidationRepository;
   proposals: LessonAiProposalRepository;
+  proposalApplication: LessonAiProposalApplicationRepository;
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
@@ -45,6 +50,20 @@ function positiveInteger(value: unknown, fieldName: string): number {
   return value;
 }
 
+function candidateId(value: unknown): string {
+  if (typeof value !== 'string') {
+    throw new ApplicationError('VALIDATION_FAILED', 'candidateId must be a string.');
+  }
+  const normalized = value.trim();
+  if (!normalized || normalized.length > 200) {
+    throw new ApplicationError(
+      'VALIDATION_FAILED',
+      'candidateId must contain between 1 and 200 characters.'
+    );
+  }
+  return normalized;
+}
+
 async function requirePermission(
   authorization: AuthorizationPolicy,
   context: RequestContext,
@@ -66,6 +85,14 @@ export async function registerAiProposalRoutes(
   const requestProposal = new RequestCoreDecisionAiProposal({
     lessons: dependencies.lessons,
     proposals: dependencies.proposals,
+    clock: dependencies.clock,
+    ids: dependencies.ids
+  });
+  const applyProposalCandidate = new ApplyLessonAiProposalCandidate({
+    lessons: dependencies.lessons,
+    invalidations: dependencies.invalidations,
+    proposals: dependencies.proposals,
+    application: dependencies.proposalApplication,
     clock: dependencies.clock,
     ids: dependencies.ids
   });
@@ -113,6 +140,36 @@ export async function registerAiProposalRoutes(
     }
 
     return { data: proposal };
+  });
+
+  app.post<{
+    Params: { lessonId: string; proposalId: string };
+    Body: { candidateId?: unknown; expectedLessonVersion?: unknown };
+  }>('/api/v1/lessons/:lessonId/ai-proposals/:proposalId/apply', async (request) => {
+    await requireCsrf(request, dependencies.auth);
+    const principal = await requireWorkspacePrincipal(request, dependencies.auth);
+    const context = requestContextFromPrincipal(request, principal);
+    await requirePermission(dependencies.authorization, context, 'lesson:write');
+
+    if (!request.body) {
+      throw new ApplicationError('VALIDATION_FAILED', 'Request body is required.');
+    }
+
+    const result = await applyProposalCandidate.execute(context, {
+      lessonId: request.params.lessonId,
+      proposalId: request.params.proposalId,
+      candidateId: candidateId(request.body.candidateId),
+      expectedLessonVersion: positiveInteger(
+        request.body.expectedLessonVersion,
+        'expectedLessonVersion'
+      )
+    });
+
+    return {
+      data: result.lesson,
+      proposal: result.proposal,
+      invalidations: result.invalidations
+    };
   });
 
   app.post<{

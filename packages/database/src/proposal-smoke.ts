@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import {
   ApplicationError,
+  ApplyLessonAiProposalCandidate,
   ProcessLessonDecisionProposal,
   RequestCoreDecisionAiProposal,
   RunNextLessonDecisionProposalJob,
@@ -8,9 +9,11 @@ import {
 } from '@tehkarta/application';
 import type { Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
 import { migrateDatabase } from './migrate.js';
+import { PostgresLessonAiProposalApplicationRepository } from './repositories/ai-proposal-application.repository.js';
 import { PostgresLessonAiProposalRepository } from './repositories/ai-proposal.repository.js';
 import { PostgresAsyncJobProcessingRepository } from './repositories/async-job.repository.js';
 import { PostgresCourseRepository } from './repositories/course.repository.js';
+import { PostgresLessonInvalidationRepository } from './repositories/lesson-invalidation.repository.js';
 import { PostgresLessonRepository } from './repositories/lesson.repository.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -38,9 +41,19 @@ const teacherInstruction =
 try {
   const lessons = new PostgresLessonRepository(pool);
   const courses = new PostgresCourseRepository(pool);
+  const invalidations = new PostgresLessonInvalidationRepository(pool);
   const proposals = new PostgresLessonAiProposalRepository(pool);
+  const proposalApplication = new PostgresLessonAiProposalApplicationRepository(pool);
   const jobs = new PostgresAsyncJobProcessingRepository(pool);
   const requestProposal = new RequestCoreDecisionAiProposal({ lessons, proposals, clock, ids });
+  const applyProposalCandidate = new ApplyLessonAiProposalCandidate({
+    lessons,
+    invalidations,
+    proposals,
+    application: proposalApplication,
+    clock,
+    ids
+  });
 
   const before = await lessons.getById(context, 'lesson_smoke');
   if (
@@ -213,11 +226,100 @@ try {
     throw new Error('AI worker modified authoritative teacher state while generating a proposal.');
   }
 
+  const applied = await applyProposalCandidate.execute(context, {
+    lessonId: 'lesson_smoke',
+    proposalId: proposal.id,
+    candidateId: 'candidate-1',
+    expectedLessonVersion: 3
+  });
+  if (
+    applied.lesson.version !== 4 ||
+    applied.lesson.problemQuestion?.value !==
+      'Почему промышленный рывок XIX века оказался столь масштабным?' ||
+    applied.lesson.problemQuestion.meta.status !== 'APPROVED' ||
+    applied.lesson.problemQuestion.meta.source !== 'TEACHER' ||
+    applied.lesson.problemQuestion.meta.revision !== 4
+  ) {
+    throw new Error('Explicit teacher apply did not create the expected approved teacher revision.');
+  }
+  if (
+    applied.proposal.status !== 'APPLIED' ||
+    applied.proposal.appliedCandidateId !== 'candidate-1' ||
+    applied.proposal.appliedDecisionId !== 'field_problem_smoke' ||
+    applied.proposal.appliedDecisionRevision !== 4 ||
+    applied.proposal.appliedBy !== 'usr_smoke'
+  ) {
+    throw new Error('Applied AI proposal provenance was not persisted.');
+  }
+
+  const revision = await pool.query<{
+    source: string;
+    status: string;
+    actor_user_id: string | null;
+    reason: string | null;
+    metadata: Record<string, unknown>;
+  }>(
+    `SELECT source, status, actor_user_id, reason, metadata
+     FROM lesson_decision_revisions
+     WHERE workspace_id = $1 AND decision_id = 'field_problem_smoke' AND revision = 4`,
+    [context.workspaceId]
+  );
+  const appliedRevision = revision.rows[0];
+  if (
+    appliedRevision?.source !== 'TEACHER' ||
+    appliedRevision.status !== 'APPROVED' ||
+    appliedRevision.actor_user_id !== 'usr_smoke' ||
+    appliedRevision.metadata?.origin !== 'AI_PROPOSAL' ||
+    appliedRevision.metadata?.proposalId !== proposal.id ||
+    appliedRevision.metadata?.candidateId !== 'candidate-1' ||
+    appliedRevision.metadata?.provider !== 'smoke-provider' ||
+    appliedRevision.metadata?.model !== 'smoke-model' ||
+    appliedRevision.metadata?.promptVersion !== 'proposal-v1-smoke'
+  ) {
+    throw new Error('Teacher revision did not retain the expected AI proposal provenance metadata.');
+  }
+
+  const applyInvalidations = applied.invalidations.filter(
+    (item) => item.sourceDecisionId === 'field_problem_smoke' && item.sourceRevision === 4
+  );
+  if (!applyInvalidations.some((item) => item.affectedSemanticKey === 'bigIdea')) {
+    throw new Error('Applying an AI candidate did not invalidate dependent lesson artifacts.');
+  }
+
+  const idempotentApply = await applyProposalCandidate.execute(context, {
+    lessonId: 'lesson_smoke',
+    proposalId: proposal.id,
+    candidateId: 'candidate-1',
+    expectedLessonVersion: 3
+  });
+  if (
+    idempotentApply.lesson.version !== 4 ||
+    idempotentApply.proposal.status !== 'APPLIED' ||
+    idempotentApply.proposal.appliedCandidateId !== 'candidate-1'
+  ) {
+    throw new Error('Retrying the same explicit teacher apply was not idempotent.');
+  }
+
+  let differentCandidateRejected = false;
+  try {
+    await applyProposalCandidate.execute(context, {
+      lessonId: 'lesson_smoke',
+      proposalId: proposal.id,
+      candidateId: 'candidate-other',
+      expectedLessonVersion: 4
+    });
+  } catch (error: unknown) {
+    differentCandidateRejected = error instanceof ApplicationError && error.code === 'CONFLICT';
+  }
+  if (!differentCandidateRejected) {
+    throw new Error('An already applied proposal accepted a different candidate on retry.');
+  }
+
   const staleCandidate = await requestProposal.execute(context, {
     lessonId: 'lesson_smoke',
     semanticKey: 'problemQuestion',
     action: 'VARIANTS',
-    expectedLessonVersion: 3,
+    expectedLessonVersion: 4,
     candidateCount: 3,
     requestKey: 'proposal-smoke-request-0002'
   });
@@ -253,7 +355,7 @@ try {
     throw new Error('Successfully generated proposal did not complete its async job.');
   }
 
-  console.info('[database] AI proposal queue + worker safety smoke test passed');
+  console.info('[database] AI proposal queue + worker + explicit teacher apply smoke test passed');
 } finally {
   await pool.end();
 }
