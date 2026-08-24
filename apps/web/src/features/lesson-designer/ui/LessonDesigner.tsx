@@ -3,7 +3,7 @@ import type { Course } from '../../../entities/course/model.js';
 import { useApiErrorRecovery } from '../../../shared/errors/useApiErrorRecovery.js';
 import { useLessonExpertise } from '../../expertise/model/useLessonExpertise.js';
 import { useLessonWorkflow } from '../../lesson-workflow/model/useLessonWorkflow.js';
-import type { ActiveDesignStep } from '../../lesson-workflow/model/steps.js';
+import { stepRefreshDependencies, type ActiveDesignStep } from '../../lesson-workflow/model/steps.js';
 import { LessonStepNavigation } from '../../lesson-workflow/ui/LessonStepNavigation.js';
 import { useMaterials } from '../../materials/model/useMaterials.js';
 import { useDesignArtifacts } from '../../scenario/model/useDesignArtifacts.js';
@@ -22,17 +22,48 @@ export function LessonDesigner({ lessonId, course, onLessonVersionChange }: {
 }) {
   const workspace = useLessonWorkspace(lessonId);
   const recover = useApiErrorRecovery();
-  const artifactActions = useDesignArtifacts(workspace);
-  const scenario = useScenario(workspace, artifactActions);
-  const materials = useMaterials(workspace, artifactActions, scenario);
-  const expertise = useLessonExpertise(workspace, scenario, materials);
+  const artifactActions = useDesignArtifacts({
+    lesson: workspace.lesson,
+    artifacts: workspace.artifacts,
+    putArtifact: workspace.putArtifact,
+    refreshLesson: workspace.refreshLesson,
+    refreshScenario: workspace.refreshScenario,
+    refreshArtifacts: workspace.refreshArtifacts
+  });
+  const scenario = useScenario({
+    lesson: workspace.lesson,
+    context: workspace.scenarioContext,
+    artifacts: workspace.artifacts,
+    saveArtifact: artifactActions.save
+  });
+  const materials = useMaterials({
+    lesson: workspace.lesson,
+    context: workspace.scenarioContext,
+    artifacts: workspace.artifacts,
+    scenario,
+    saveArtifact: artifactActions.save
+  });
+  const expertise = useLessonExpertise({ lesson: workspace.lesson, context: workspace.scenarioContext, scenario, materials });
   const onEnter = useCallback(async (step: ActiveDesignStep) => {
-    if (step < 4) return;
+    const resources = stepRefreshDependencies[step];
+    const refreshes: Promise<void>[] = [];
+    if (resources.includes('lesson')) refreshes.push(workspace.refreshLesson());
+    if (resources.includes('proposals')) refreshes.push(workspace.refreshProposals());
+    if (resources.includes('methodology')) refreshes.push(workspace.refreshMethodology());
+    if (resources.includes('content')) refreshes.push(workspace.refreshContent());
+    if (resources.includes('scenario')) refreshes.push(workspace.refreshScenario());
+    if (resources.includes('artifacts')) refreshes.push(workspace.refreshArtifacts());
     try {
-      await Promise.all([workspace.refreshLesson(), workspace.refreshScenario(), workspace.refreshContent(), workspace.refreshArtifacts()]);
-    } catch (error) { await recover(error, workspace.refreshAll); }
-  }, [recover, workspace]);
-  const workflow = useLessonWorkflow(workspace.lesson, onEnter);
+      await Promise.all(refreshes);
+    } catch (error) { await recover(error); }
+  }, [recover, workspace.refreshArtifacts, workspace.refreshContent, workspace.refreshLesson, workspace.refreshMethodology, workspace.refreshProposals, workspace.refreshScenario]);
+  const workflow = useLessonWorkflow({
+    lesson: workspace.lesson,
+    content: workspace.contentContext,
+    context: workspace.scenarioContext,
+    artifacts: workspace.artifacts,
+    expertiseReady: expertise.isReady
+  }, onEnter);
 
   if (workspace.loading && !workspace.lesson) return <div className="lesson-designer-skeleton" aria-label="Загрузка урока"><div /><div /><div /></div>;
   if (workspace.error && !workspace.lesson) return <div className="page-error">{workspace.error}</div>;

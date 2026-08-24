@@ -1,15 +1,21 @@
 import { useMemo } from 'react';
-import type { LessonWorkspace } from '../../lesson-designer/model/useLessonWorkspace.js';
+import type { ApprovedScenarioContext } from '../../../entities/artifact/model.js';
+import type { Lesson } from '../../../entities/lesson/model.js';
 import type { useMaterials } from '../../materials/model/useMaterials.js';
 import type { useScenario } from '../../scenario/model/useScenario.js';
 
 export interface ExpertiseCheck { label: string; ok: boolean }
 
-export function useLessonExpertise(workspace: LessonWorkspace, scenario: ReturnType<typeof useScenario>, materials: ReturnType<typeof useMaterials>) {
+export interface LessonExpertiseDependencies {
+  lesson: Lesson | null;
+  context: ApprovedScenarioContext | null;
+  scenario: ReturnType<typeof useScenario>;
+  materials: ReturnType<typeof useMaterials>;
+}
+
+export function useLessonExpertise({ lesson, context, scenario, materials }: LessonExpertiseDependencies) {
   const checks = useMemo<ExpertiseCheck[]>(() => {
-    const lesson = workspace.lesson;
     if (!lesson) return [];
-    const context = workspace.scenarioContext;
     return [
       { label: 'Цель, проблемный вопрос и большая идея утверждены', ok: [lesson.goal, lesson.problemQuestion, lesson.bigIdea].every((field) => field?.meta.status === 'APPROVED') },
       { label: 'Есть хотя бы один утверждённый результат', ok: lesson.outcomes.some((field) => field.meta.status === 'APPROVED') },
@@ -23,7 +29,7 @@ export function useLessonExpertise(workspace: LessonWorkspace, scenario: ReturnT
       { label: 'Материалы учитывают актуальный план и источники курса', ok: Boolean(context?.coursePlanning) && materials.artifact?.payload.generatedFromCourseContextRevision === context?.coursePlanning?.contextRevision },
       { label: 'Все материалы подготовлены', ok: Boolean(materials.artifact) && materials.items.length > 0 && materials.items.every((item) => item.ready) }
     ];
-  }, [materials.artifact, materials.items, scenario.artifact, scenario.stages, scenario.totalMinutes, workspace.lesson, workspace.scenarioContext]);
+  }, [context, lesson, materials.artifact, materials.items, scenario.artifact, scenario.stages, scenario.totalMinutes]);
   const passed = checks.filter((check) => check.ok).length;
   return { checks, passed, total: checks.length, isReady: checks.length > 0 && passed === checks.length };
 }

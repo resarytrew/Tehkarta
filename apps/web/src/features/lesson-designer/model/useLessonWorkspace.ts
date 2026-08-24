@@ -68,6 +68,9 @@ export function useLessonWorkspace(lessonId: string) {
   const refreshMethodology = useCallback(async () => {
     setMethodology(await getMethodologyRecommendations(api, lessonId));
   }, [api, lessonId]);
+  const refreshProposals = useCallback(async () => {
+    setProposals(await listAiProposals(api, lessonId));
+  }, [api, lessonId]);
   const refreshContent = useCallback(async () => {
     setContentContext(await getLessonContentContext(api, lessonId));
   }, [api, lessonId]);
@@ -100,6 +103,7 @@ export function useLessonWorkspace(lessonId: string) {
     error,
     refreshAll,
     refreshLesson,
+    refreshProposals,
     refreshMethodology,
     refreshContent,
     refreshScenario,

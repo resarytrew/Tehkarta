@@ -1,6 +1,18 @@
 export type ActiveDesignStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type WorkflowStepState = 'locked' | 'available' | 'complete' | 'stale';
+export type WorkflowResource = 'lesson' | 'proposals' | 'methodology' | 'content' | 'scenario' | 'artifacts';
 
-export const designSteps: ReadonlyArray<{ step: ActiveDesignStep; number: string; label: string }> = [
+export interface DesignStepDefinition {
+  step: ActiveDesignStep;
+  number: string;
+  label: string;
+}
+
+export interface DesignStep extends DesignStepDefinition {
+  state: WorkflowStepState;
+}
+
+export const designSteps: ReadonlyArray<DesignStepDefinition> = [
   { step: 1, number: '01', label: 'Замысел' },
   { step: 2, number: '02', label: 'Цель и результаты' },
   { step: 3, number: '03', label: 'Методический конструктор' },
@@ -10,6 +22,17 @@ export const designSteps: ReadonlyArray<{ step: ActiveDesignStep; number: string
   { step: 7, number: '07', label: 'Экспертиза' },
   { step: 8, number: '08', label: 'Карта урока' }
 ];
+
+export const stepRefreshDependencies: Readonly<Record<ActiveDesignStep, readonly WorkflowResource[]>> = {
+  1: [],
+  2: [],
+  3: [],
+  4: ['content'],
+  5: ['lesson', 'scenario', 'content'],
+  6: ['scenario', 'artifacts'],
+  7: ['scenario', 'artifacts'],
+  8: ['lesson', 'scenario', 'artifacts']
+};
 
 export const stepContextLabels: Record<ActiveDesignStep, string> = {
   1: 'Контекст замысла',

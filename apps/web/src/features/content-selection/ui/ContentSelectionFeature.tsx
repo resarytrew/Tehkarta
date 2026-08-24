@@ -7,7 +7,15 @@ export function ContentSelectionFeature({ workspace, onLessonVersionChange, onNe
   onLessonVersionChange(lessonId: string, version: number): void;
   onNext(): void;
 }) {
-  const model = useContentSelection(workspace, onLessonVersionChange);
+  const model = useContentSelection({
+    lesson: workspace.lesson,
+    context: workspace.contentContext,
+    applyGovernance: workspace.applyGovernance,
+    setContentContext: workspace.setContentContext,
+    refreshLesson: workspace.refreshLesson,
+    refreshContent: workspace.refreshContent,
+    refreshScenario: workspace.refreshScenario
+  }, onLessonVersionChange);
   return (
     <ContentContextPanel
       context={model.context}

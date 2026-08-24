@@ -32,7 +32,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile
       - run: pnpm typecheck
       - run: pnpm build
       - run: pnpm test
@@ -42,6 +42,61 @@ jobs:
           DEV_BOOTSTRAP_EMAIL: teacher@bootstrap.test
           DEV_BOOTSTRAP_PASSWORD: Bootstrap-Test-Password-2026!
         run: pnpm db:bootstrap-dev && pnpm db:bootstrap-dev
+
+  e2e-smoke:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tehkarta
+          POSTGRES_PASSWORD: tehkarta
+          POSTGRES_DB: tehkarta_e2e
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tehkarta -d tehkarta_e2e"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgres://tehkarta:tehkarta@localhost:5432/tehkarta_e2e
+      DEV_BOOTSTRAP_EMAIL: teacher@bootstrap.test
+      DEV_BOOTSTRAP_PASSWORD: Bootstrap-Test-Password-2026!
+      TEHKARTA_E2E_EMAIL: teacher@bootstrap.test
+      TEHKARTA_E2E_PASSWORD: Bootstrap-Test-Password-2026!
+      TEHKARTA_E2E_BASE_URL: http://127.0.0.1:5174
+      VITE_API_PROXY_TARGET: http://127.0.0.1:8080
+      CORS_ALLOWED_ORIGINS: http://127.0.0.1:5174
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @tehkarta/web exec playwright install --with-deps chromium
+      - run: pnpm build:packages && pnpm --filter @tehkarta/api build
+      - run: pnpm db:migrate && pnpm db:bootstrap-dev
+      - name: Run authenticated non-mutating browser smoke
+        shell: bash
+        run: |
+          pnpm --filter @tehkarta/api start > "$RUNNER_TEMP/tehkarta-api.log" 2>&1 &
+          api_pid=$!
+          trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8080/health >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              cat "$RUNNER_TEMP/tehkarta-api.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          pnpm --filter @tehkarta/web test:e2e --grep "restores course and lesson selection after reload"
 
   container:
     runs-on: ubuntu-latest

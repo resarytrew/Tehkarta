@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { Lesson } from '../entities/lesson/model.js';
+import type { GovernedField, Lesson } from '../entities/lesson/model.js';
 import type { LessonWorkspace } from '../features/lesson-designer/model/useLessonWorkspace.js';
 import { ApiProvider } from '../shared/api/ApiProvider.js';
 import { SessionActionsProvider } from '../shared/auth/SessionActions.js';
@@ -16,12 +16,21 @@ export function lessonFixture(overrides: Partial<Lesson> = {}): Lesson {
   };
 }
 
+export function approvedField(value: string, fieldId: string = crypto.randomUUID()): GovernedField<string> {
+  return {
+    fieldId,
+    value,
+    meta: { revision: 1, source: 'TEACHER', status: 'APPROVED', updatedAt: '2026-08-24T00:00:00.000Z' }
+  };
+}
+
 export function lessonWorkspaceFixture(overrides: Partial<LessonWorkspace> = {}): LessonWorkspace {
   return {
     lesson: lessonFixture(), invalidations: [], proposals: [], methodology: null, contentContext: null,
     scenarioContext: null, artifacts: [], loading: false, error: null,
     refreshAll: async () => undefined,
     refreshLesson: async () => undefined,
+    refreshProposals: async () => undefined,
     refreshMethodology: async () => undefined,
     refreshContent: async () => undefined,
     refreshScenario: async () => undefined,
@@ -36,10 +45,10 @@ export function lessonWorkspaceFixture(overrides: Partial<LessonWorkspace> = {})
   };
 }
 
-export function TestProviders({ children }: { children: ReactNode }) {
+export function TestProviders({ children, onSessionEnded = () => undefined }: { children: ReactNode; onSessionEnded?: () => void }) {
   return (
     <ApiProvider config={{ baseUrl: 'http://api.test', workspaceId: 'workspace-1', csrfToken: 'csrf-test' }}>
-      <SessionActionsProvider onSessionEnded={() => undefined}>
+      <SessionActionsProvider onSessionEnded={onSessionEnded}>
         <NotificationProvider>{children}</NotificationProvider>
       </SessionActionsProvider>
     </ApiProvider>

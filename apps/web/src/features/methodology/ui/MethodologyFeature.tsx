@@ -7,7 +7,14 @@ export function MethodologyFeature({ workspace, onLessonVersionChange, onNext }:
   onLessonVersionChange(lessonId: string, version: number): void;
   onNext(): void;
 }) {
-  const model = useMethodology(workspace, onLessonVersionChange);
+  const model = useMethodology({
+    lesson: workspace.lesson,
+    bundle: workspace.methodology,
+    applyGovernance: workspace.applyGovernance,
+    refreshLesson: workspace.refreshLesson,
+    refreshMethodology: workspace.refreshMethodology,
+    refreshScenario: workspace.refreshScenario
+  }, onLessonVersionChange);
   if (!workspace.lesson) return null;
   return (
     <MethodologyConstructor

@@ -496,6 +496,21 @@ select:focus-visible {
   color: #4d5870;
 }
 
+.design-step.is-complete {
+  color: #24744b;
+}
+
+.design-step.is-stale {
+  background: #fff9ea;
+  color: #8a641a;
+}
+
+.design-step.is-locked {
+  cursor: not-allowed;
+  color: #aeb4bf;
+  background: #f7f8f8;
+}
+
 .design-step.is-current {
   position: relative;
   background: var(--accent-soft);

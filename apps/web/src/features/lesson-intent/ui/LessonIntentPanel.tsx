@@ -10,8 +10,22 @@ export function LessonIntentPanel({ workspace, onLessonVersionChange, onNext }: 
   onLessonVersionChange(lessonId: string, version: number): void;
   onNext(): void;
 }) {
-  const governed = useGovernedDecisions(workspace, onLessonVersionChange);
-  const ai = useAiProposals(workspace, onLessonVersionChange);
+  const governed = useGovernedDecisions({
+    lesson: workspace.lesson,
+    applyGovernance: workspace.applyGovernance,
+    refreshLesson: workspace.refreshLesson,
+    refreshMethodology: workspace.refreshMethodology,
+    refreshScenario: workspace.refreshScenario
+  }, onLessonVersionChange);
+  const ai = useAiProposals({
+    lesson: workspace.lesson,
+    putProposal: workspace.putProposal,
+    applyGovernance: workspace.applyGovernance,
+    refreshLesson: workspace.refreshLesson,
+    refreshProposals: workspace.refreshProposals,
+    refreshMethodology: workspace.refreshMethodology,
+    refreshScenario: workspace.refreshScenario
+  }, onLessonVersionChange);
   const lesson = workspace.lesson;
   if (!lesson) return null;
 

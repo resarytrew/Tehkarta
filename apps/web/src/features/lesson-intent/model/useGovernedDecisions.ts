@@ -1,13 +1,21 @@
 import { useCallback, useState } from 'react';
-import type { CoreDecisionKey } from '../../../entities/lesson/model.js';
+import type { CoreDecisionKey, GovernanceResponse, Lesson } from '../../../entities/lesson/model.js';
 import { ApiRequestError } from '../../../shared/api/ApiClient.js';
 import { useApiClient } from '../../../shared/api/ApiProvider.js';
 import { useApiErrorRecovery } from '../../../shared/errors/useApiErrorRecovery.js';
 import { useNotifications } from '../../../shared/notifications/NotificationProvider.js';
-import type { LessonWorkspace } from '../../lesson-designer/model/useLessonWorkspace.js';
 import { approveDecision, editDecision } from '../api/governedDecisionApi.js';
 
-export function useGovernedDecisions(workspace: LessonWorkspace, onLessonVersionChange: (lessonId: string, version: number) => void) {
+export interface GovernedDecisionDependencies {
+  lesson: Lesson | null;
+  applyGovernance(response: GovernanceResponse): void;
+  refreshLesson(): Promise<void>;
+  refreshMethodology(): Promise<void>;
+  refreshScenario(): Promise<void>;
+}
+
+export function useGovernedDecisions(dependencies: GovernedDecisionDependencies, onLessonVersionChange: (lessonId: string, version: number) => void) {
+  const { lesson, applyGovernance, refreshLesson, refreshMethodology, refreshScenario } = dependencies;
   const api = useApiClient();
   const recover = useApiErrorRecovery();
   const notifications = useNotifications();
@@ -16,13 +24,12 @@ export function useGovernedDecisions(workspace: LessonWorkspace, onLessonVersion
   const recoverMutation = useCallback(async (error: unknown) => {
     const classified = await recover(
       error,
-      error instanceof ApiRequestError && error.status === 409 ? workspace.refreshLesson : undefined
+      error instanceof ApiRequestError && error.status === 409 ? refreshLesson : undefined
     );
     throw new Error(classified.message);
-  }, [recover, workspace.refreshLesson]);
+  }, [recover, refreshLesson]);
 
   const saveDraft = useCallback(async (semanticKey: CoreDecisionKey, value: string) => {
-    const lesson = workspace.lesson;
     if (!lesson) return;
     setBusyKey(semanticKey);
     try {
@@ -35,15 +42,14 @@ export function useGovernedDecisions(workspace: LessonWorkspace, onLessonVersion
         expectedLessonVersion: lesson.version,
         ...(field ? { expectedFieldRevision: field.meta.revision } : {})
       });
-      workspace.applyGovernance(response);
+      applyGovernance(response);
       onLessonVersionChange(response.data.id, response.data.version);
       notifications.info('Черновик сохранён. Следующие шаги используют только утверждённое решение.');
     } catch (error) { await recoverMutation(error); }
     finally { setBusyKey(null); }
-  }, [api, notifications, onLessonVersionChange, recoverMutation, workspace]);
+  }, [api, applyGovernance, lesson, notifications, onLessonVersionChange, recoverMutation]);
 
   const apply = useCallback(async (semanticKey: CoreDecisionKey, value: string) => {
-    const lesson = workspace.lesson;
     if (!lesson) return;
     setBusyKey(semanticKey);
     try {
@@ -58,7 +64,7 @@ export function useGovernedDecisions(workspace: LessonWorkspace, onLessonVersion
           expectedLessonVersion: workingLesson.version,
           ...(field ? { expectedFieldRevision: field.meta.revision } : {})
         });
-        workspace.applyGovernance(edited);
+        applyGovernance(edited);
         workingLesson = edited.data;
         field = workingLesson[semanticKey];
       }
@@ -70,15 +76,15 @@ export function useGovernedDecisions(workspace: LessonWorkspace, onLessonVersion
           expectedLessonVersion: workingLesson.version,
           expectedFieldRevision: field.meta.revision
         });
-        workspace.applyGovernance(approved);
+        applyGovernance(approved);
         workingLesson = approved.data;
       }
       onLessonVersionChange(workingLesson.id, workingLesson.version);
-      await Promise.all([workspace.refreshMethodology(), workspace.refreshScenario()]);
+      await Promise.all([refreshMethodology(), refreshScenario()]);
       notifications.success('Решение утверждено педагогом и доступно следующим этапам.');
     } catch (error) { await recoverMutation(error); }
     finally { setBusyKey(null); }
-  }, [api, notifications, onLessonVersionChange, recoverMutation, workspace]);
+  }, [api, applyGovernance, lesson, notifications, onLessonVersionChange, recoverMutation, refreshMethodology, refreshScenario]);
 
   return { busyKey, saveDraft, apply };
 }

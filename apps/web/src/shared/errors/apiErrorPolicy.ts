@@ -25,10 +25,10 @@ export function classifyApiError(error: unknown): ClassifiedApiError {
       return { kind: 'forbidden', message: error.message || 'Недостаточно прав для этой рабочей области.', recovery: 'none' };
     }
     if (error.status === 409 && error.payload.code === 'DEPENDENCY_STALE') {
-      return { kind: 'dependency-stale', message: 'Рекомендация устарела после изменений урока. Загружен актуальный утверждённый контекст.', recovery: 'reload-lesson' };
+      return { kind: 'dependency-stale', message: 'Рекомендация устарела после изменений урока.', recovery: 'reload-lesson' };
     }
     if (error.status === 409) {
-      return { kind: 'stale-version', message: 'Данные изменились в другой вкладке. Загружена актуальная версия.', recovery: 'reload-lesson' };
+      return { kind: 'stale-version', message: 'Данные изменились в другой вкладке.', recovery: 'reload-lesson' };
     }
     if (error.status === 400 || error.status === 422) {
       return { kind: 'validation', message: error.message, recovery: 'none' };

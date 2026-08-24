@@ -1,26 +1,34 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { LessonDesignArtifact, LessonMaterialItem, MaterialsPayload } from '../../../entities/artifact/model.js';
-import type { LessonWorkspace } from '../../lesson-designer/model/useLessonWorkspace.js';
+import type { ApprovedScenarioContext, LessonDesignArtifact, LessonMaterialItem, MaterialsPayload, ScenarioStage } from '../../../entities/artifact/model.js';
+import type { Lesson } from '../../../entities/lesson/model.js';
 import type { useDesignArtifacts } from '../../scenario/model/useDesignArtifacts.js';
-import type { useScenario } from '../../scenario/model/useScenario.js';
 import { materialDefaults } from './materialDefaults.js';
 
 type ArtifactActions = ReturnType<typeof useDesignArtifacts>;
-type ScenarioModel = ReturnType<typeof useScenario>;
 
-export function useMaterials(workspace: LessonWorkspace, artifactActions: ArtifactActions, scenario: ScenarioModel) {
-  const lesson = workspace.lesson;
-  const artifact = artifactActions.artifacts.find((item) => item.kind === 'MATERIALS') as LessonDesignArtifact<MaterialsPayload> | undefined;
+export interface MaterialsDependencies {
+  lesson: Lesson | null;
+  context: ApprovedScenarioContext | null;
+  artifacts: LessonDesignArtifact[];
+  scenario: { artifact: LessonDesignArtifact | undefined; stages: ScenarioStage[] };
+  saveArtifact: ArtifactActions['save'];
+}
+
+export function useMaterials(dependencies: MaterialsDependencies) {
+  const { lesson, context, artifacts, scenario, saveArtifact } = dependencies;
+  const contextRevision = context?.coursePlanning?.contextRevision;
+  const contextLessonVersion = context?.lesson.version;
+  const artifact = artifacts.find((item) => item.kind === 'MATERIALS') as LessonDesignArtifact<MaterialsPayload> | undefined;
   const [items, setItems] = useState<LessonMaterialItem[]>([]);
 
   useEffect(() => {
     if (!lesson) { setItems([]); return; }
-    setItems(artifact?.payload.items ?? materialDefaults(workspace.scenarioContext, scenario.stages));
-  }, [artifact?.revision, lesson, scenario.artifact?.revision, workspace.scenarioContext]);
+    setItems(artifact?.payload.items ?? materialDefaults(context, scenario.stages));
+  }, [artifact?.revision, contextLessonVersion, contextRevision, lesson?.id, lesson?.version, scenario.artifact?.revision]);
 
   const regenerate = useCallback(() => {
-    setItems(materialDefaults(workspace.scenarioContext, scenario.stages));
-  }, [scenario.stages, workspace.scenarioContext]);
+    setItems(materialDefaults(context, scenario.stages));
+  }, [context, scenario.stages]);
   const add = useCallback(() => {
     setItems((current) => [...current, {
       id: crypto.randomUUID(),
@@ -32,14 +40,14 @@ export function useMaterials(workspace: LessonWorkspace, artifactActions: Artifa
   }, []);
   const save = useCallback(async () => {
     if (!lesson) return;
-    await artifactActions.save('MATERIALS', {
+    await saveArtifact('MATERIALS', {
       items,
       generatedFromLessonVersion: lesson.version,
       generatedFromScenarioRevision: scenario.artifact?.revision ?? 0,
-      generatedFromCoursePlanRevision: workspace.scenarioContext?.coursePlanning?.planRevision ?? 0,
-      generatedFromCourseContextRevision: workspace.scenarioContext?.coursePlanning?.contextRevision ?? ''
+      generatedFromCoursePlanRevision: context?.coursePlanning?.planRevision ?? 0,
+      generatedFromCourseContextRevision: context?.coursePlanning?.contextRevision ?? ''
     });
-  }, [artifactActions, items, lesson, scenario.artifact?.revision, workspace.scenarioContext]);
+  }, [context, items, lesson, saveArtifact, scenario.artifact?.revision]);
 
   return { artifact, items, setItems, regenerate, add, save };
 }

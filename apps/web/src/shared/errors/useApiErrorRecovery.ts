@@ -14,9 +14,19 @@ export function useApiErrorRecovery() {
       return classified;
     }
     if (classified.recovery === 'reload-lesson' && reload) {
-      await reload();
-      notifications.warning(classified.message);
-      return classified;
+      try {
+        await reload();
+        notifications.warning(`${classified.message} Актуальные зависимые данные загружены.`);
+        return classified;
+      } catch (reloadError) {
+        const reloadFailure = classifyApiError(reloadError);
+        const failedRecovery = {
+          ...classified,
+          message: `${classified.message} Автоматическое обновление не удалось: ${reloadFailure.message}`
+        };
+        notifications.error(failedRecovery.message);
+        return failedRecovery;
+      }
     }
     notifications.error(classified.message);
     return classified;
