@@ -14,13 +14,35 @@ resource "yandex_container_repository_lifecycle_policy" "api" {
   status        = "active"
 
   rule {
-    description   = "Keep recent production candidates and remove old untagged layers."
+    description   = "Remove old untagged API layers."
     untagged      = true
     expire_period = "168h"
   }
 
   rule {
-    description  = "Keep the registry bounded while preserving recent deployable images."
+    description  = "Keep the API registry bounded while preserving recent deployable images."
+    retained_top = var.retained_tagged_images
+    tag_regexp   = ".+"
+  }
+}
+
+resource "yandex_container_repository" "worker" {
+  name = "${yandex_container_registry.this.id}/${var.worker_repository_name}"
+}
+
+resource "yandex_container_repository_lifecycle_policy" "worker" {
+  name          = "keep-recent-worker-images"
+  repository_id = yandex_container_repository.worker.id
+  status        = "active"
+
+  rule {
+    description   = "Remove old untagged worker layers."
+    untagged      = true
+    expire_period = "168h"
+  }
+
+  rule {
+    description  = "Keep the worker registry bounded while preserving recent deployable images."
     retained_top = var.retained_tagged_images
     tag_regexp   = ".+"
   }
