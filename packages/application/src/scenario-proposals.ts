@@ -27,6 +27,7 @@ export interface ScenarioStage {
   teacherAction: string;
   studentAction: string;
   method?: string;
+  techniques: string[];
   form?: string;
   evidenceOfLearning?: string;
   contentRefs: ScenarioContentRef[];
