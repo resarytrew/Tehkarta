@@ -92,6 +92,29 @@ export async function registerAiProposalRoutes(
     };
   });
 
+  app.get<{
+    Params: { lessonId: string; proposalId: string };
+  }>('/api/v1/lessons/:lessonId/ai-proposals/:proposalId', async (request) => {
+    const principal = await requireWorkspacePrincipal(request, dependencies.auth);
+    const context = requestContextFromPrincipal(request, principal);
+    await requirePermission(dependencies.authorization, context, 'lesson:read');
+
+    const lesson = await dependencies.lessons.getById(context, request.params.lessonId);
+    if (!lesson) {
+      throw new ApplicationError('NOT_FOUND', `Lesson ${request.params.lessonId} was not found.`);
+    }
+
+    const proposal = await dependencies.proposals.getById(context, request.params.proposalId);
+    if (!proposal || proposal.lessonId !== lesson.id) {
+      throw new ApplicationError(
+        'NOT_FOUND',
+        `AI proposal ${request.params.proposalId} was not found for lesson ${lesson.id}.`
+      );
+    }
+
+    return { data: proposal };
+  });
+
   app.post<{
     Params: { lessonId: string };
     Body: {
