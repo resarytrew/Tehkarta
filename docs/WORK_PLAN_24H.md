@@ -67,27 +67,25 @@
 - provider/model/prompt/base revision показываются как provenance metadata, когда доступны;
 - CI полностью зелёный: verify, db:smoke, Docker non-root, Terraform.
 
-## [ ] 3. Явное применение AI-кандидата педагогом
+## [x] 3. Явное применение AI-кандидата педагогом
 
-Создать application-команду `ApplyLessonAiProposalCandidate`.
+**Результат:** завершено и влито в `main`.
 
-Требования:
-
-- только `READY` proposal;
-- candidate обязан принадлежать proposal;
-- proposal обязан принадлежать текущему lesson/workspace;
-- проверить `requestedLessonVersion`, `baseDecisionId`, `baseRevision` против актуального state;
-- stale proposal применить нельзя;
-- применение должно быть **teacher action** с actor user ID;
-- AI не пишет напрямую в authoritative decision;
-- provenance сохраняет `proposalId`, `candidateId`, provider/model/prompt/routing policy;
-- downstream dependency invalidations создаются так же, как при ручной правке;
-- итоговое поле получает teacher-authoritative semantics;
-- proposal переходит `READY → APPLIED` только атомарно с успешным применением;
-- повтор должен быть идемпотентным либо давать устойчивый conflict contract;
-- критический regression fixture: вопрос «Почему в XIX в. промышленная революция достигла огромных успехов?» не может быть заменён без явного Apply.
-
-**DoD:** candidate можно применить одной явной кнопкой, после reload сохраняется новое teacher-controlled state; никакого silent overwrite.
+- PR #14 `Apply AI proposal candidates only by explicit teacher action`;
+- green head: `5fb207a5233dafe883c7914ccf36272d4eae71f7`;
+- squash merge: `b69987eb831587077c21796fc07813b5e72b270c`;
+- создан отдельный use case `ApplyLessonAiProposalCandidate`;
+- добавлен CSRF-protected endpoint `POST /api/v1/lessons/:lessonId/ai-proposals/:proposalId/apply`;
+- только `READY` proposal может быть применён;
+- candidate, workspace, lesson version, `baseDecisionId` и `baseRevision` повторно проверяются;
+- PostgreSQL `FOR UPDATE` защищает proposal, lesson и governed decision от гонок;
+- lesson decision, immutable revision history, dependency invalidations и `READY → APPLIED` фиксируются **одной транзакцией**;
+- authoritative field сохраняется как `source=TEACHER`, `status=APPROVED`, с actor user ID;
+- AI provenance сохраняется отдельно: proposal/candidate/provider/model/prompt/routing policy;
+- повторное применение того же candidate идемпотентно, другой candidate после APPLIED даёт conflict;
+- UI теперь требует два отдельных действия: `Выбрать` → `✓ Применить выбранный вариант`;
+- regression smoke проверяет вопрос «Почему в XIX в. промышленная революция достигла огромных успехов?» и доказывает, что AI-текст становится authoritative только после явного Apply;
+- CI полностью зелёный: typecheck/build/test/db:smoke, Docker non-root, Terraform.
 
 ## [ ] 4. `Отклонить` и `Запросить ещё варианты`
 
