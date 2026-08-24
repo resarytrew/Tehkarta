@@ -64,9 +64,12 @@ try {
   });
   if (ready.status !== 'READY') throw new Error('Dismissal smoke proposal did not become READY.');
 
+  // This fixture bypasses the real worker runner, so close the durable job with
+  // the same terminal timestamp column used by PostgresAsyncJobProcessingRepository.
   await pool.query(
     `UPDATE async_jobs
-     SET status = 'SUCCEEDED', completed_at = $2, updated_at = $2
+     SET status = 'SUCCEEDED', finished_at = $2, updated_at = $2,
+         result_json = '{"test":"proposal-dismiss-smoke"}'::jsonb
      WHERE workspace_id = $1 AND id = $3`,
     [context.workspaceId, now, queued.asyncJobId]
   );
