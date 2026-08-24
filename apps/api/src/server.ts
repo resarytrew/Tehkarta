@@ -9,6 +9,7 @@ import {
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
   PostgresLoginThrottleRepository,
+  PostgresMethodologyFeedbackRepository,
   PostgresPasswordCredentialRepository,
   PostgresSessionRepository
 } from '@tehkarta/database';
@@ -49,8 +50,6 @@ const sessions = new SessionService({
 });
 
 const passwordHasher = new Argon2idPasswordHasher();
-// Unknown-account logins still perform a real Argon2id verification to reduce
-// timing differences that could otherwise expose whether an email is registered.
 const dummyPasswordHash = await passwordHasher.hash(`tehkarta-dummy-${randomUUID()}`);
 const loginThrottle = new LoginThrottleService(new PostgresLoginThrottleRepository(pool));
 const passwordLogin = new PasswordLoginService({
@@ -76,6 +75,7 @@ const app = await createApiApp(config, {
   invalidations: new PostgresLessonInvalidationRepository(pool),
   proposals: proposalRepository,
   proposalApplication: proposalApplicationRepository,
+  methodologyFeedback: new PostgresMethodologyFeedbackRepository(pool),
   authorization: new WorkspaceAuthorizationPolicy(),
   clock,
   ids

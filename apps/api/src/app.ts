@@ -11,7 +11,8 @@ import {
   type LessonAiProposalApplicationRepository,
   type LessonAiProposalRepository,
   type LessonInvalidationRepository,
-  type LessonRepository
+  type LessonRepository,
+  type MethodologyFeedbackRepository
 } from '@tehkarta/application';
 import {
   AuthenticationError,
@@ -28,6 +29,7 @@ import {
   sessionTokenFromRequest
 } from './auth.js';
 import type { ApiConfig } from './config.js';
+import { registerMethodologyRoutes } from './methodology-routes.js';
 import { hashClientIp } from './security.js';
 
 export interface ApiDependencies {
@@ -38,6 +40,7 @@ export interface ApiDependencies {
   invalidations: LessonInvalidationRepository;
   proposals: LessonAiProposalRepository;
   proposalApplication: LessonAiProposalApplicationRepository;
+  methodologyFeedback: MethodologyFeedbackRepository;
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
@@ -171,7 +174,6 @@ export async function createApiApp(
     const email = typeof request.body?.email === 'string' ? request.body.email.trim() : '';
     const password = typeof request.body?.password === 'string' ? request.body.password : '';
 
-    // Keep malformed and unknown credentials indistinguishable to the caller.
     if (!email || email.length > 254 || !password || password.length > 4096) {
       throw new AuthenticationError('INVALID_CREDENTIALS');
     }
@@ -402,6 +404,16 @@ export async function createApiApp(
     invalidations: dependencies.invalidations,
     proposals: dependencies.proposals,
     proposalApplication: dependencies.proposalApplication,
+    authorization: dependencies.authorization,
+    clock: dependencies.clock,
+    ids: dependencies.ids
+  });
+
+  await registerMethodologyRoutes(app, {
+    auth: authRuntime,
+    lessons: dependencies.lessons,
+    invalidations: dependencies.invalidations,
+    feedback: dependencies.methodologyFeedback,
     authorization: dependencies.authorization,
     clock: dependencies.clock,
     ids: dependencies.ids
