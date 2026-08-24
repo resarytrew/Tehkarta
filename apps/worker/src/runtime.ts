@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import type { ProposalWorkerRunResult } from '@tehkarta/application';
 
 export interface ProposalJobRunner {
@@ -49,17 +50,14 @@ function safeRuntimeError(error: unknown): Readonly<Record<string, unknown>> {
   return { errorName: 'UnknownError' };
 }
 
-function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) return Promise.resolve();
-  return new Promise((resolve) => {
-    const timer = setTimeout(resolve, milliseconds);
-    const onAbort = () => {
-      clearTimeout(timer);
-      resolve();
-    };
-    signal.addEventListener('abort', onAbort, { once: true });
-    timer.unref?.();
-  });
+async function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return;
+  try {
+    await delay(milliseconds, undefined, { signal, ref: false });
+  } catch (error) {
+    if (signal.aborted && error instanceof Error && error.name === 'AbortError') return;
+    throw error;
+  }
 }
 
 export class WorkerRuntime {
