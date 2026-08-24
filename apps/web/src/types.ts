@@ -1,4 +1,4 @@
-import type { Course, Lesson, OutcomeKind } from '@tehkarta/domain';
+import type { ContentFreedom, Course, Lesson, OutcomeKind } from '@tehkarta/domain';
 
 export type { Course, GovernedField, Lesson } from '@tehkarta/domain';
 
@@ -144,6 +144,58 @@ export interface MethodologyRecommendationBundle {
     };
   };
   recommendations: MethodologyRecommendation[];
+}
+
+export type SourceAccessLevel = 'METADATA_ONLY' | 'PREVIEW' | 'FULL';
+export type ContentContextScope = 'COURSE' | 'SECTION' | 'LESSON';
+
+export interface ContentContextSource {
+  sourceId: string;
+  sourceVersion: string;
+  sourceType: string;
+  title: string;
+  rightsBasis: string;
+  accessLevel: SourceAccessLevel;
+  section?: string;
+  pageStart?: number;
+  pageEnd?: number;
+  fragmentHash?: string;
+}
+
+export interface LessonCurriculumRequirement {
+  id: string;
+  code?: string;
+  kind: 'CONTENT' | 'OUTCOME' | 'ASSESSMENT' | 'HOURS';
+  text: string;
+  allocationStage: 'MANDATORY' | 'INTRODUCE' | 'DEVELOP' | 'APPLY' | 'ASSESS';
+  allocationScope: ContentContextScope;
+  source: ContentContextSource | null;
+}
+
+export interface LessonUmkEvidenceItem {
+  mappingId: string;
+  sourceUnitId: string;
+  relationType: 'PRIMARY' | 'SUPPORTING' | 'ASSESSMENT' | 'EXTENSION';
+  mappingScope: ContentContextScope;
+  resourceType: 'TEXTBOOK' | 'METHOD_GUIDE' | 'ATLAS' | 'WORKBOOK' | 'ASSESSMENT' | 'DIGITAL' | 'OTHER';
+  unitType: string;
+  title: string;
+  sectionRef?: string;
+  pages?: string;
+  text?: string;
+  textRestricted: boolean;
+  source: ContentContextSource;
+}
+
+export interface LessonContentContext {
+  lessonId: string;
+  courseId: string;
+  contentMode: ContentFreedom;
+  curriculumPack: { id: string; version: string; title: string };
+  contentPack: { id: string; version: string; title: string };
+  curriculumRequirements: LessonCurriculumRequirement[];
+  umkEvidence: LessonUmkEvidenceItem[];
+  aiSupplemental: [];
 }
 
 export interface LoginMembership {
