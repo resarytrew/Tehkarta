@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "node dist/server.js",
-    "test": "echo 'API integration tests are covered by database/auth smoke tests for now'"
+    "test": "node --test dist/**/*.test.js"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
