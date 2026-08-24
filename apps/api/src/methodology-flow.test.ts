@@ -379,16 +379,19 @@ maybeTest('Methodical Constructor uses only approved outcomes and applies teache
       assert.equal(feedback.rows[0]?.status, 'REJECTED');
     }
 
-    const reload = await lessons.getById(
-      {
-        workspaceId: ids.workspace,
-        actorUserId: ids.user,
-        requestId: `methodology-reload-${suffix}`
-      },
-      ids.lesson
-    );
-    assert.equal(reload?.selectedMethods[0]?.meta.status, 'APPROVED');
-    assert.equal(reload?.selectedMethods[0]?.meta.source, 'TEACHER');
+    const reloadResponse = await app.inject({
+      method: 'GET',
+      url: `/api/v1/lessons/${ids.lesson}`,
+      headers: readHeaders
+    });
+    assert.equal(reloadResponse.statusCode, 200, reloadResponse.body);
+    const reload = reloadResponse.json<{
+      data: {
+        selectedMethods: Array<{ meta: { status: string; source: string } }>;
+      };
+    }>().data;
+    assert.equal(reload.selectedMethods[0]?.meta.status, 'APPROVED');
+    assert.equal(reload.selectedMethods[0]?.meta.source, 'TEACHER');
   } finally {
     await app.close();
     await pool.end();
