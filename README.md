@@ -2,7 +2,34 @@
 
 AI-среда совместного педагогического проектирования: курс → раздел → урок → этап → материалы.
 
-Проект создаётся с нуля под Yandex Cloud. Педагог остаётся автором решений; AI выступает методистом и работает только в рамках утверждённого педагогом контекста, рабочей программы и подключённого УМК.
+Педагог остаётся автором решений; AI выступает методистом и работает только в рамках утверждённого педагогом контекста. Утверждённые решения не переписываются моделью автоматически.
+
+## Что уже работает
+
+Первый teacher-authoritative vertical slice включает:
+
+```text
+цель / проблемный вопрос / большая идея
+→ AI proposal
+→ durable worker
+→ READY candidates
+→ явный Apply / Dismiss педагогом
+→ TEACHER + APPROVED revision
+→ dependency invalidation + provenance
+```
+
+Также реализован первый `03 Методический конструктор`:
+
+```text
+APPROVED outcome
+→ исследовательская технология
+→ объяснимая рекомендация метода
+→ отдельный выбор приёмов
+→ отдельный выбор формы организации
+→ Использовать / Не использовать
+```
+
+Групповая работа моделируется как организационная форма, а не как метод.
 
 ## Локальный запуск
 
@@ -24,14 +51,27 @@ pnpm dev
 pnpm worker:dev
 ```
 
-Для локальной/CI проверки критического teacher-authority потока без обращения к внешней модели используется отдельный integration harness:
+Для критического teacher-authority потока без обращения к внешней модели используется integration harness:
 
 ```bash
 pnpm e2e:critical
 ```
 
-Он проходит реальный HTTP/API + PostgreSQL путь: login → edit/approve → AI proposal queue → worker processor → READY → explicit Apply → reload. Тестовый генератор существует только внутри test harness и никогда не включается в обычный runtime или UI.
+Он проходит реальный HTTP/API + PostgreSQL путь: login → edit/approve → AI proposal queue → worker processor → READY → explicit Apply → reload. Тестовый generator существует только внутри test harness и никогда не включается в обычный runtime или UI.
 
-## Статус
+Обычный CI дополнительно проверяет Methodical Constructor: approved-only recommendations, CSRF, explicit teacher application, downstream invalidation, durable reject feedback и persistence after reload.
 
-Идёт создание production-oriented vertical slice на примере курса истории 9 класса. Текущее фактическое состояние реализации фиксируется в `TECHNICAL_DOCUMENTATION.md` и `docs/WORK_PLAN_24H.md`.
+## Архитектура и правила
+
+Перед разработкой прочитать:
+
+1. `RULS.md`;
+2. `TECHNICAL_DOCUMENTATION.md`;
+3. `docs/WORK_PLAN_24H.md`;
+4. релевантные `docs/adr/*`.
+
+Целевая инфраструктура описана Terraform-кодом для Yandex Cloud. Наличие IaC в репозитории **не означает**, что реальные облачные ресурсы уже provisioned: `terraform apply` требует операторских Yandex Cloud credentials и не выполняется в обычном CI.
+
+## Следующий продуктовый слой
+
+Следующий приоритет — централизованный versioned RP/UMK Content layer и реальный шаг `04 Содержание УМК`, после чего можно проектировать `05 Сценарий` на основе утверждённых outcomes, methodology и content evidence.
