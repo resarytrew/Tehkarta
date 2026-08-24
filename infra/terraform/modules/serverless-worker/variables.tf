@@ -14,6 +14,12 @@ variable "service_account_name" {
   default     = null
 }
 
+variable "trigger_service_account_name" {
+  description = "Service account used by the timer trigger to invoke the private worker container."
+  type        = string
+  default     = null
+}
+
 variable "network_id" {
   description = "VPC network attached to the worker Serverless Container."
   type        = string
@@ -68,6 +74,46 @@ variable "secret_environment" {
     key        = string
   }))
   default = {}
+}
+
+variable "enable_timer" {
+  description = "Create a timer trigger that invokes one worker task on each tick."
+  type        = bool
+  default     = true
+}
+
+variable "timer_cron_expression" {
+  description = "Yandex timer cron expression. The development default invokes the task once per minute."
+  type        = string
+  default     = "* * ? * * *"
+}
+
+variable "timer_payload" {
+  description = "Opaque timer payload. Worker processing remains driven by the durable PostgreSQL queue."
+  type        = string
+  default     = "{\"source\":\"timer\"}"
+}
+
+variable "timer_retry_attempts" {
+  description = "Number of container invocation retries performed by the trigger."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.timer_retry_attempts >= 1 && var.timer_retry_attempts <= 5
+    error_message = "timer_retry_attempts must be between 1 and 5."
+  }
+}
+
+variable "timer_retry_interval_seconds" {
+  description = "Seconds between trigger invocation retries."
+  type        = number
+  default     = 20
+
+  validation {
+    condition     = var.timer_retry_interval_seconds >= 10 && var.timer_retry_interval_seconds <= 60
+    error_message = "timer_retry_interval_seconds must be between 10 and 60."
+  }
 }
 
 variable "labels" {
