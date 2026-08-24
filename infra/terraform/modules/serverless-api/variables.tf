@@ -8,6 +8,18 @@ variable "name" {
   type        = string
 }
 
+variable "runtime_service_account_name" {
+  description = "API runtime service account name."
+  type        = string
+  default     = null
+}
+
+variable "gateway_service_account_name" {
+  description = "API Gateway service account name."
+  type        = string
+  default     = null
+}
+
 variable "network_id" {
   description = "VPC network attached to the Serverless Container and API Gateway."
   type        = string

@@ -1,0 +1,95 @@
+name: Publish dev images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Build and publish immutable images
+    runs-on: ubuntu-latest
+    environment: dev
+    env:
+      YC_DEPLOY_SERVICE_ACCOUNT_ID: ${{ vars.YC_DEPLOY_SERVICE_ACCOUNT_ID }}
+      YC_REGISTRY_ID: ${{ vars.YC_REGISTRY_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require workload-identity deployment variables
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$YC_DEPLOY_SERVICE_ACCOUNT_ID" || { echo "YC_DEPLOY_SERVICE_ACCOUNT_ID is not configured in the protected dev environment" >&2; exit 1; }
+          test -n "$YC_REGISTRY_ID" || { echo "YC_REGISTRY_ID is not configured in the protected dev environment" >&2; exit 1; }
+
+      - name: Request GitHub OIDC token
+        uses: actions/github-script@v7
+        id: github_oidc
+        with:
+          script: |
+            const core = require('@actions/core');
+            const idToken = await core.getIDToken();
+            core.setSecret(idToken);
+            core.setOutput('token', idToken);
+
+      - name: Exchange OIDC token for Yandex IAM token
+        id: yandex_iam
+        shell: bash
+        env:
+          GITHUB_OIDC_TOKEN: ${{ steps.github_oidc.outputs.token }}
+        run: |
+          set -euo pipefail
+          response="$(curl --fail-with-body --silent --show-error \
+            -H 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:token-exchange' \
+            --data-urlencode 'requested_token_type=urn:ietf:params:oauth:token-type:access_token' \
+            --data-urlencode "audience=${YC_DEPLOY_SERVICE_ACCOUNT_ID}" \
+            --data-urlencode "subject_token=${GITHUB_OIDC_TOKEN}" \
+            --data-urlencode 'subject_token_type=urn:ietf:params:oauth:token-type:id_token' \
+            https://auth.yandex.cloud/oauth/token)"
+          iam_token="$(jq -er '.access_token' <<<"$response")"
+          echo "::add-mask::$iam_token"
+          echo "token=$iam_token" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate Docker to Yandex Container Registry
+        shell: bash
+        env:
+          YC_IAM_TOKEN: ${{ steps.yandex_iam.outputs.token }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$YC_IAM_TOKEN" | docker login --username iam --password-stdin cr.yandex
+
+      - name: Build API image
+        run: docker build --file apps/api/Dockerfile --tag "cr.yandex/${YC_REGISTRY_ID}/api:${GITHUB_SHA}" .
+
+      - name: Build worker image
+        run: docker build --file apps/worker/Dockerfile --tag "cr.yandex/${YC_REGISTRY_ID}/worker:${GITHUB_SHA}" .
+
+      - name: Verify non-root image users
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(docker image inspect "cr.yandex/${YC_REGISTRY_ID}/api:${GITHUB_SHA}" --format '{{.Config.User}}')" = "node"
+          test "$(docker image inspect "cr.yandex/${YC_REGISTRY_ID}/worker:${GITHUB_SHA}" --format '{{.Config.User}}')" = "node"
+
+      - name: Push immutable API and worker tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker push "cr.yandex/${YC_REGISTRY_ID}/api:${GITHUB_SHA}"
+          docker push "cr.yandex/${YC_REGISTRY_ID}/worker:${GITHUB_SHA}"
+
+      - name: Record deployment inputs
+        shell: bash
+        run: |
+          {
+            echo '### Published Yandex Container Registry images'
+            echo
+            echo "- API: \`cr.yandex/${YC_REGISTRY_ID}/api:${GITHUB_SHA}\`"
+            echo "- Worker: \`cr.yandex/${YC_REGISTRY_ID}/worker:${GITHUB_SHA}\`"
+            echo
+            echo 'Next gate: run database migrations from a trusted VPC-capable execution environment, then update Terraform image tags/digests and apply the runtime revision. This workflow intentionally does not expose private PostgreSQL to a public GitHub runner.'
+          } >> "$GITHUB_STEP_SUMMARY"

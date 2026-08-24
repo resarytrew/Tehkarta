@@ -14,8 +14,14 @@ variable "api_repository_name" {
   default     = "api"
 }
 
+variable "worker_repository_name" {
+  description = "Repository name used for the Tehkarta worker image."
+  type        = string
+  default     = "worker"
+}
+
 variable "retained_tagged_images" {
-  description = "Maximum number of tagged API images retained by lifecycle policy."
+  description = "Maximum number of tagged API/worker images retained by lifecycle policy."
   type        = number
   default     = 30
 }

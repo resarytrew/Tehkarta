@@ -1,18 +1,26 @@
 locals {
-  runtime_member = "serviceAccount:${yandex_iam_service_account.runtime.id}"
-  gateway_member = "serviceAccount:${yandex_iam_service_account.gateway.id}"
+  runtime_service_account_name = coalesce(var.runtime_service_account_name, "${var.name}-api-runtime")
+  gateway_service_account_name = coalesce(var.gateway_service_account_name, "${var.name}-gateway-runtime")
+  runtime_member               = "serviceAccount:${yandex_iam_service_account.runtime.id}"
+  gateway_member               = "serviceAccount:${yandex_iam_service_account.gateway.id}"
 }
 
 resource "yandex_iam_service_account" "runtime" {
   folder_id   = var.folder_id
-  name        = "${var.name}-runtime"
+  name        = local.runtime_service_account_name
   description = "Runtime identity for the Tehkarta API Serverless Container."
 }
 
 resource "yandex_iam_service_account" "gateway" {
   folder_id   = var.folder_id
-  name        = "${var.name}-gateway"
+  name        = local.gateway_service_account_name
   description = "Least-privilege identity used by API Gateway to invoke the private Tehkarta API container."
+}
+
+resource "yandex_resourcemanager_folder_iam_member" "runtime_image_puller" {
+  folder_id = var.folder_id
+  role      = "container-registry.images.puller"
+  member    = local.runtime_member
 }
 
 resource "yandex_resourcemanager_folder_iam_member" "runtime_storage" {
@@ -42,6 +50,10 @@ resource "yandex_serverless_container" "api" {
   service_account_id = yandex_iam_service_account.runtime.id
   labels             = var.labels
 
+  runtime {
+    type = "http"
+  }
+
   connectivity {
     network_id = var.network_id
   }
@@ -68,6 +80,7 @@ resource "yandex_serverless_container" "api" {
   }
 
   depends_on = [
+    yandex_resourcemanager_folder_iam_member.runtime_image_puller,
     yandex_resourcemanager_folder_iam_member.runtime_storage,
     yandex_lockbox_secret_iam_member.runtime
   ]

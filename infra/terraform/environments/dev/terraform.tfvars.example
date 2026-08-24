@@ -1,24 +1,77 @@
 cloud_id  = "<yandex-cloud-id>"
 folder_id = "<yandex-folder-id>"
 
-# First apply with false: network, storage, PostgreSQL and Container Registry are created.
-enable_api_runtime = false
+# Phase 1: create core network/storage/PostgreSQL/registry/deploy identity only.
+enable_api_runtime    = false
+enable_worker_runtime = false
+enable_web_runtime    = false
 
-# After CI pushes the image, set enable_api_runtime = true.
-api_image_tag    = "dev"
-api_image_digest = null
+# Browser origins allowed to use credential cookies. The web CDN origin is added automatically
+# when enable_web_runtime=true.
+api_allowed_origins = ["http://localhost:5173"]
 
-# Example once the Connection Manager-created Lockbox secret is known:
+# Phase 2: CI publishes immutable API and worker images. Prefer the Git commit SHA as the tag
+# and supply an immutable digest when available.
+api_image_tag       = "<git-sha>"
+api_image_digest    = null
+worker_image_tag    = "<git-sha>"
+worker_image_digest = null
+
+# Runtime secret payloads remain in Lockbox and are referenced by ID/version/key only.
+# DB_PASSWORD can point at the secret produced by Managed PostgreSQL Connection Manager.
+# AUTH_IP_HASH_KEY should be a separately generated >=32-character secret.
 # api_secret_environment = {
 #   DB_PASSWORD = {
 #     id         = "<lockbox-secret-id>"
 #     version_id = "<lockbox-version-id>"
 #     key        = "password"
 #   }
+#   AUTH_IP_HASH_KEY = {
+#     id         = "<lockbox-secret-id>"
+#     version_id = "<lockbox-version-id>"
+#     key        = "auth-ip-hash-key"
+#   }
 # }
 
-# Optional custom domain after Certificate Manager validation:
+# AI routing is explicit: there is no silent provider fallback.
+# Set model identifiers before enable_worker_runtime=true.
+ai_variants_provider    = "yandex"
+ai_variants_model       = null
+ai_reformulate_provider = "yandex"
+ai_reformulate_model    = null
+ai_routing_policy_version = "routing-v2"
+
+# worker_secret_environment = {
+#   DB_PASSWORD = {
+#     id         = "<lockbox-secret-id>"
+#     version_id = "<lockbox-version-id>"
+#     key        = "password"
+#   }
+#   YANDEX_AI_API_KEY = {
+#     id         = "<lockbox-secret-id>"
+#     version_id = "<lockbox-version-id>"
+#     key        = "api-key"
+#   }
+# }
+
+# Development baseline: one task invocation per minute. Each invocation claims at most one
+# durable PostgreSQL proposal job; this is intentionally simple and can later be replaced by
+# Message Queue/Event Router without changing the application queue semantics.
+worker_timer_cron_expression = "* * ? * * *"
+
+# Optional API custom domain after Certificate Manager validation.
 # api_custom_domain = {
 #   fqdn           = "api.dev.example.ru"
 #   certificate_id = "<certificate-id>"
 # }
+
+# Static web + CDN. The bucket name must be globally unique. DNS must point web_domain to the
+# web_provider_cname Terraform output.
+# enable_web_runtime  = true
+# web_bucket_name     = "<globally-unique-web-bucket>"
+# web_domain          = "dev.example.ru"
+# web_certificate_id  = "<certificate-manager-id>"
+
+# tehkarta-deploy intentionally starts with image-push permission only. Expand only for a
+# protected deployment environment after reviewing required operations.
+deploy_roles = ["container-registry.images.pusher"]
