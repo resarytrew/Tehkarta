@@ -9,6 +9,7 @@ import {
   PostgresIdentityRepository,
   PostgresLessonAiProposalApplicationRepository,
   PostgresLessonAiProposalRepository,
+  PostgresLessonContentContextRepository,
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
   PostgresLoginThrottleRepository,
@@ -220,6 +221,7 @@ maybeTest('Methodical Constructor uses only approved outcomes and applies teache
     proposals: new PostgresLessonAiProposalRepository(pool),
     proposalApplication: new PostgresLessonAiProposalApplicationRepository(pool),
     methodologyFeedback,
+    contentContext: new PostgresLessonContentContextRepository(pool),
     authorization: new WorkspaceAuthorizationPolicy(),
     clock,
     ids: idGenerator
