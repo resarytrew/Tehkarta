@@ -87,12 +87,23 @@
 - regression smoke проверяет вопрос «Почему в XIX в. промышленная революция достигла огромных успехов?» и доказывает, что AI-текст становится authoritative только после явного Apply;
 - CI полностью зелёный: typecheck/build/test/db:smoke, Docker non-root, Terraform.
 
-## [ ] 4. `Отклонить` и `Запросить ещё варианты`
+## [x] 4. `Отклонить` и `Запросить ещё варианты`
 
-- `DISMISSED` как terminal state;
-- dismiss не меняет lesson;
-- новый запрос создаёт новый proposal;
-- история предложений сохраняется по полю.
+**Результат:** завершено и влито в `main`.
+
+- PR #15 `Add explicit AI proposal dismissal and field history`;
+- green head: `309329ec824a554afc54228648ad53cf95da8fe5`;
+- squash merge: `2d7a1164b409c9f6469a3ebaa33f6d3a03a08aed`;
+- добавлен application use case `DismissLessonAiProposal`;
+- `POST /api/v1/lessons/:lessonId/ai-proposals/:proposalId/dismiss` защищён CSRF и workspace authorization;
+- только `READY` proposal переводится в `DISMISSED`, повторное отклонение идемпотентно;
+- `dismissed_by` и `dismissed_at` сохраняют provenance явного решения педагога;
+- отклонение не изменяет `lesson_decisions`, field revision или lesson version;
+- `Запросить ещё варианты` создаёт новый AI proposal через существующий request use case, старый proposal не мутируется;
+- UI хранит и показывает историю предложений по governed field;
+- добавлен отдельный DB smoke для dismissal/history и сохранения teacher-authoritative state;
+- первый CI выявил ошибку тестовой фикстуры (`completed_at` вместо реального `async_jobs.finished_at`); тест исправлен по фактическому queue schema, после чего полный CI зелёный;
+- прошли typecheck/build/test/db:smoke, Docker production image + non-root assertion и Terraform validation.
 
 ---
 
