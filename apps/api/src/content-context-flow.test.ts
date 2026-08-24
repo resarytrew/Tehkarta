@@ -170,16 +170,15 @@ maybeTest('lesson content context exposes approved RP/UMK evidence and fails clo
       `INSERT INTO source_units(
          id,source_document_id,unit_type,ordinal,title,text_content,content_hash
        ) VALUES
-       ($1,$4,'CONCEPT',1,'Вторая промышленная революция','Разрешённый тестовый текст о второй промышленной революции.',$7),
-       ($2,$5,'CONCEPT',1,'Монополия','Этот сохранённый текст не должен покидать сервер при METADATA_ONLY.',$8),
-       ($3,$4,'EXTENSION',2,'Непроверенное расширение','Непроверенный текст не должен попадать в авторитетный контекст.',$9)`,
+       ($1,$4,'CONCEPT',1,'Вторая промышленная революция','Разрешённый тестовый текст о второй промышленной революции.',$6),
+       ($2,$5,'CONCEPT',1,'Монополия','Этот сохранённый текст не должен покидать сервер при METADATA_ONLY.',$7),
+       ($3,$4,'EXTENSION',2,'Непроверенное расширение','Непроверенный текст не должен попадать в авторитетный контекст.',$8)`,
       [
         fullUnit,
         restrictedUnit,
         unreviewedUnit,
         ids.fullSource,
         ids.restrictedSource,
-        ids.lesson,
         `full-unit-${suffix}`,
         `restricted-unit-${suffix}`,
         `unreviewed-unit-${suffix}`
