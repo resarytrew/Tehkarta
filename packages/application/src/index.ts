@@ -93,3 +93,4 @@ export * from './lesson-governance.js';
 export * from './ai-proposals.js';
 export * from './ai-proposal-processing.js';
 export * from './ai-proposal-application.js';
+export * from './methodology.js';
