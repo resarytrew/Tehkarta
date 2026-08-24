@@ -50,6 +50,8 @@ export interface LessonAiProposal {
   appliedDecisionRevision?: number;
   appliedBy?: string;
   appliedAt?: string;
+  dismissedBy?: string;
+  dismissedAt?: string;
 }
 
 export interface QueueLessonAiProposalInput {
@@ -82,6 +84,10 @@ export interface LessonAiProposalRepository {
     context: RequestContext,
     proposalId: string
   ): Promise<LessonAiProposal | null>;
+  dismiss(
+    context: RequestContext,
+    input: { proposalId: string; dismissedAt: string }
+  ): Promise<LessonAiProposal>;
 }
 
 function currentDecision(
@@ -203,5 +209,52 @@ export class RequestCoreDecisionAiProposal {
     if (teacherInstruction) queueInput.teacherInstruction = teacherInstruction;
 
     return this.deps.proposals.queue(context, queueInput);
+  }
+}
+
+export interface AiProposalDismissDependencies {
+  lessons: LessonRepository;
+  proposals: LessonAiProposalRepository;
+  clock: Clock;
+}
+
+/**
+ * Records an explicit teacher rejection of a READY proposal. Dismissal is a
+ * proposal-lifecycle action only: it never mutates lesson_decisions, lesson
+ * version or downstream artifacts.
+ */
+export class DismissLessonAiProposal {
+  constructor(private readonly deps: AiProposalDismissDependencies) {}
+
+  async execute(
+    context: RequestContext,
+    input: { lessonId: string; proposalId: string }
+  ): Promise<LessonAiProposal> {
+    const lesson = await this.deps.lessons.getById(context, input.lessonId);
+    if (!lesson) {
+      throw new ApplicationError('NOT_FOUND', `Lesson ${input.lessonId} was not found.`);
+    }
+
+    const proposal = await this.deps.proposals.getById(context, input.proposalId);
+    if (!proposal || proposal.lessonId !== lesson.id) {
+      throw new ApplicationError(
+        'NOT_FOUND',
+        `AI proposal ${input.proposalId} was not found for lesson ${lesson.id}.`
+      );
+    }
+
+    if (proposal.status === 'DISMISSED') return proposal;
+    if (proposal.status !== 'READY') {
+      throw new ApplicationError(
+        'CONFLICT',
+        `Only a READY AI proposal can be dismissed; current status is ${proposal.status}.`,
+        { proposalId: proposal.id, currentStatus: proposal.status }
+      );
+    }
+
+    return this.deps.proposals.dismiss(context, {
+      proposalId: proposal.id,
+      dismissedAt: this.deps.clock.now().toISOString()
+    });
   }
 }
