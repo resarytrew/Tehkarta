@@ -34,6 +34,10 @@
   gap: 12px;
 }
 
+.content-pack-summary--selection {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
 .content-pack-summary > div {
   min-width: 0;
   padding: 16px;
@@ -115,10 +119,79 @@
 .content-evidence-card {
   padding: 20px 22px;
   border-bottom: 1px solid var(--border);
+  transition: background 160ms ease, box-shadow 160ms ease;
 }
 
 .content-evidence-card:last-child {
   border-bottom: 0;
+}
+
+.content-evidence-card--locked {
+  background: linear-gradient(180deg, rgba(19, 122, 74, 0.035), rgba(19, 122, 74, 0.01));
+}
+
+.content-evidence-card--selectable.is-included {
+  background: var(--approved-soft);
+  box-shadow: inset 4px 0 0 var(--approved);
+}
+
+.content-evidence-card--selectable.is-excluded {
+  background: var(--surface-muted);
+  opacity: 0.82;
+  box-shadow: inset 4px 0 0 var(--border-strong);
+}
+
+.content-evidence-card--selectable.is-undecided {
+  box-shadow: inset 4px 0 0 var(--edited);
+}
+
+.content-selection-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.content-selection-state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.content-selection-state.is-included,
+.content-selection-state--locked {
+  color: var(--approved);
+  background: var(--approved-soft);
+}
+
+.content-selection-state.is-excluded {
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+}
+
+.content-selection-state.is-undecided {
+  color: var(--edited);
+  background: var(--edited-soft);
+}
+
+.content-selection-explainer {
+  color: var(--text-soft);
+  font-size: 11px;
+}
+
+.content-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin-top: 16px;
+  padding-top: 15px;
+  border-top: 1px solid var(--border);
 }
 
 .content-evidence-card__title {
@@ -212,13 +285,21 @@
   margin: 18px 22px 22px;
 }
 
+@media (max-width: 1100px) {
+  .content-pack-summary--selection {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 900px) {
-  .content-pack-summary {
+  .content-pack-summary,
+  .content-pack-summary--selection {
     grid-template-columns: 1fr;
   }
 
   .content-source-section__heading,
-  .content-evidence-card__title {
+  .content-evidence-card__title,
+  .content-selection-topline {
     flex-direction: column;
   }
 }
