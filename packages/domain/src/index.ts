@@ -200,3 +200,4 @@ export function replaceWithAiProposal<T>(
 
 export * from './dependencies.js';
 export * from './history9.seed.js';
+export * from './methodology.js';
