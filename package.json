@@ -11,6 +11,7 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "e2e:critical": "pnpm build:packages && pnpm --filter @tehkarta/api build && pnpm --filter @tehkarta/api test",
     "db:migrate": "pnpm --filter @tehkarta/database migrate",
     "db:smoke": "pnpm --filter @tehkarta/database smoke",
     "db:bootstrap-dev": "pnpm --filter @tehkarta/database bootstrap-dev"
