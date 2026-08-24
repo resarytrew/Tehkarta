@@ -10,6 +10,7 @@ import { InvalidationPanel } from './components/InvalidationPanel.js';
 import { MethodologyConstructor } from './components/MethodologyConstructor.js';
 import type {
   AiProposalAction,
+  ContentSelectionDecision,
   CoreDecisionKey,
   Course,
   CourseSummary,
@@ -18,6 +19,7 @@ import type {
   LessonContentContext,
   LessonInvalidation,
   LessonSummary,
+  LessonUmkEvidenceItem,
   MeResponse,
   MethodologyRecommendation,
   MethodologyRecommendationBundle
@@ -142,6 +144,7 @@ export function App({ onSessionEnded }: AppProps) {
   const [contentContext, setContentContext] = useState<LessonContentContext | null>(null);
   const [methodologyLoading, setMethodologyLoading] = useState(false);
   const [methodologyBusyRecommendationId, setMethodologyBusyRecommendationId] = useState<string | null>(null);
+  const [contentSelectionBusyMappingId, setContentSelectionBusyMappingId] = useState<string | null>(null);
   const [addingOutcome, setAddingOutcome] = useState(false);
   const [activeStep, setActiveStep] = useState<ActiveDesignStep>(2);
   const [me, setMe] = useState<MeResponse | null>(null);
@@ -544,6 +547,47 @@ export function App({ onSessionEnded }: AppProps) {
     }
   }
 
+  async function setUmkContentDecision(
+    item: LessonUmkEvidenceItem,
+    decision: ContentSelectionDecision
+  ): Promise<void> {
+    if (!api || !lesson) return;
+    setContentSelectionBusyMappingId(item.mappingId);
+    setNotice(null);
+
+    try {
+      const response = await api.setUmkContentDecision({
+        lessonId: lesson.id,
+        mappingId: item.mappingId,
+        decision,
+        expectedLessonVersion: lesson.version
+      });
+      setLesson(response.data);
+      setContentContext(response.contentContext);
+      setInvalidations(response.invalidations);
+      setLessons((current) =>
+        current.map((summary) =>
+          summary.id === response.data.id
+            ? { ...summary, version: response.data.version }
+            : summary
+        )
+      );
+      setNotice(
+        response.changed
+          ? decision === 'INCLUDED'
+            ? `Материал «${item.title}» включён педагогом в утверждённый набор содержания. Зависимые блоки помечены для пересмотра.`
+            : `Материал «${item.title}» исключён из содержания этого урока. Источник и решение сохранены в истории.`
+          : 'Это решение уже зафиксировано; версия урока не изменена.'
+      );
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCurrentLesson();
+      setNotice(errorMessage(error));
+    } finally {
+      setContentSelectionBusyMappingId(null);
+    }
+  }
+
   async function signOut(): Promise<void> {
     try {
       if (api && csrfToken) await api.logout();
@@ -740,7 +784,12 @@ export function App({ onSessionEnded }: AppProps) {
                       onRejectRecommendation={rejectMethodologyRecommendation}
                     />
                   ) : (
-                    <ContentContextPanel context={contentContext} loading={loading} />
+                    <ContentContextPanel
+                      context={contentContext}
+                      loading={loading}
+                      busyMappingId={contentSelectionBusyMappingId}
+                      onSetUmkDecision={setUmkContentDecision}
+                    />
                   )}
                 </section>
 
@@ -805,12 +854,16 @@ export function App({ onSessionEnded }: AppProps) {
                       ) : (
                         <>
                           <div>
-                            <span>Требований РП</span>
-                            <strong>{contentContext?.curriculumRequirements.length ?? 0}</strong>
+                            <span>Обязательное ядро РП</span>
+                            <strong>{contentContext?.approvedContentSet.mandatoryRequirementIds.length ?? 0}</strong>
                           </div>
                           <div>
-                            <span>Проверенных элементов УМК</span>
-                            <strong>{contentContext?.umkEvidence.length ?? 0}</strong>
+                            <span>Включено из УМК</span>
+                            <strong>{contentContext?.approvedContentSet.includedUmkMappingIds.length ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span>Без решения</span>
+                            <strong>{contentContext?.approvedContentSet.undecidedUmkMappingIds.length ?? 0}</strong>
                           </div>
                         </>
                       )}
