@@ -6,6 +6,7 @@ import {
   PostgresIdentityRepository,
   PostgresLessonAiProposalApplicationRepository,
   PostgresLessonAiProposalRepository,
+  PostgresLessonContentContextRepository,
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
   PostgresLoginThrottleRepository,
@@ -76,6 +77,7 @@ const app = await createApiApp(config, {
   proposals: proposalRepository,
   proposalApplication: proposalApplicationRepository,
   methodologyFeedback: new PostgresMethodologyFeedbackRepository(pool),
+  contentContext: new PostgresLessonContentContextRepository(pool),
   authorization: new WorkspaceAuthorizationPolicy(),
   clock,
   ids
