@@ -10,6 +10,7 @@ import {
   type CourseRepository,
   type LessonAiProposalApplicationRepository,
   type LessonAiProposalRepository,
+  type LessonContentContextRepository,
   type LessonInvalidationRepository,
   type LessonRepository,
   type MethodologyFeedbackRepository
@@ -29,6 +30,7 @@ import {
   sessionTokenFromRequest
 } from './auth.js';
 import type { ApiConfig } from './config.js';
+import { registerContentContextRoutes } from './content-context-routes.js';
 import { registerMethodologyRoutes } from './methodology-routes.js';
 import { hashClientIp } from './security.js';
 
@@ -41,6 +43,7 @@ export interface ApiDependencies {
   proposals: LessonAiProposalRepository;
   proposalApplication: LessonAiProposalApplicationRepository;
   methodologyFeedback: MethodologyFeedbackRepository;
+  contentContext: LessonContentContextRepository;
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
@@ -417,6 +420,12 @@ export async function createApiApp(
     authorization: dependencies.authorization,
     clock: dependencies.clock,
     ids: dependencies.ids
+  });
+
+  await registerContentContextRoutes(app, {
+    auth: authRuntime,
+    contentContext: dependencies.contentContext,
+    authorization: dependencies.authorization
   });
 
   app.post('/api/v1/auth/logout', async (request, reply) => {
