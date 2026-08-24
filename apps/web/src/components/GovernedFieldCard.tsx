@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { GovernedField } from '@tehkarta/domain';
 import type { CoreDecisionKey, LessonAiProposal } from '../types.js';
+import { AiProposalPanel } from './AiProposalPanel.js';
 
 export type AiFieldAction = 'variants' | 'regenerate' | 'improve';
 
@@ -16,17 +17,6 @@ interface GovernedFieldCardProps {
   onApply(value: string): Promise<void>;
   onAiAction(action: AiFieldAction, semanticKey: CoreDecisionKey): Promise<void>;
 }
-
-const proposalStatusLabel: Record<LessonAiProposal['status'], string> = {
-  QUEUED: 'в очереди',
-  RUNNING: 'генерируется',
-  READY: 'готово к просмотру',
-  APPLIED: 'применено педагогом',
-  DISMISSED: 'отклонено педагогом',
-  STALE: 'устарело после изменений',
-  FAILED: 'ошибка генерации',
-  CANCELLED: 'отменено'
-};
 
 function statusPresentation(field?: GovernedField<string>): {
   label: string;
@@ -208,17 +198,7 @@ export function GovernedFieldCard({
         </button>
       </div>
 
-      {latestProposal ? (
-        <div className="decision-editor__meta" aria-live="polite">
-          <span>
-            AI-запрос: {proposalStatusLabel[latestProposal.status]}
-            {latestProposal.action === 'VARIANTS'
-              ? ` · ${latestProposal.candidateCountRequested} варианта`
-              : ''}
-          </span>
-          <span>Предложение хранится отдельно и не меняет утверждённый текст.</span>
-        </div>
-      ) : null}
+      {latestProposal ? <AiProposalPanel proposal={latestProposal} /> : null}
     </article>
   );
 }
