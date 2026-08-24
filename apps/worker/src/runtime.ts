@@ -53,7 +53,10 @@ function safeRuntimeError(error: unknown): Readonly<Record<string, unknown>> {
 async function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
   if (signal.aborted) return;
   try {
-    await delay(milliseconds, undefined, { signal, ref: false });
+    // Keep the timer referenced. In polling mode the health server also keeps
+    // the process alive, while tests and one-purpose runtimes must not let Node
+    // terminate before an awaited delay completes.
+    await delay(milliseconds, undefined, { signal });
   } catch (error) {
     if (signal.aborted && error instanceof Error && error.name === 'AbortError') return;
     throw error;
