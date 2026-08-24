@@ -5,6 +5,8 @@
   "packageManager": "pnpm@9.15.0",
   "scripts": {
     "dev": "pnpm build:packages && pnpm --parallel --filter @tehkarta/api --filter @tehkarta/web dev",
+    "worker:dev": "pnpm build:packages && pnpm --filter @tehkarta/worker dev",
+    "worker:once": "pnpm build:packages && pnpm --filter @tehkarta/worker once",
     "build:packages": "pnpm -r --filter './packages/**' build",
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
