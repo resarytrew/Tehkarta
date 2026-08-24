@@ -1,4 +1,5 @@
 import type {
+  ContentSelectionDecision,
   LessonContentContext,
   LessonCurriculumRequirement,
   LessonUmkEvidenceItem
@@ -7,6 +8,11 @@ import type {
 export interface ContentContextPanelProps {
   context: LessonContentContext | null;
   loading: boolean;
+  busyMappingId: string | null;
+  onSetUmkDecision(
+    item: LessonUmkEvidenceItem,
+    decision: ContentSelectionDecision
+  ): Promise<void>;
 }
 
 const requirementKindLabels: Record<LessonCurriculumRequirement['kind'], string> = {
@@ -47,6 +53,12 @@ const resourceLabels: Record<LessonUmkEvidenceItem['resourceType'], string> = {
   OTHER: 'Материал УМК'
 };
 
+const selectionLabels: Record<LessonUmkEvidenceItem['selection']['state'], string> = {
+  UNDECIDED: 'Решение не принято',
+  INCLUDED: '✓ Включено педагогом',
+  EXCLUDED: 'Не используется'
+};
+
 function SourceProvenance({ item }: { item: LessonUmkEvidenceItem }) {
   return (
     <div className="content-provenance">
@@ -59,7 +71,12 @@ function SourceProvenance({ item }: { item: LessonUmkEvidenceItem }) {
   );
 }
 
-export function ContentContextPanel({ context, loading }: ContentContextPanelProps) {
+export function ContentContextPanel({
+  context,
+  loading,
+  busyMappingId,
+  onSetUmkDecision
+}: ContentContextPanelProps) {
   if (loading && !context) {
     return <div className="content-context-loading">Загружаем нормативный и УМК-контекст…</div>;
   }
@@ -75,19 +92,23 @@ export function ContentContextPanel({ context, loading }: ContentContextPanelPro
     );
   }
 
+  const includedCount = context.approvedContentSet.includedUmkMappingIds.length;
+  const excludedCount = context.approvedContentSet.excludedUmkMappingIds.length;
+  const undecidedCount = context.approvedContentSet.undecidedUmkMappingIds.length;
+
   return (
     <section className="content-context" aria-labelledby="content-context-title">
       <div className="section-intro content-context-intro">
-        <span className="eyebrow">Шаг 4 · содержание УМК</span>
-        <h2 id="content-context-title">Что урок обязан покрыть и на что можно опереться</h2>
+        <span className="eyebrow">Шаг 4 · управляемое содержание</span>
+        <h2 id="content-context-title">Соберите утверждённый набор содержания урока</h2>
         <p>
-          Платформа отделяет нормативные требования рабочей программы от конкретного содержания УМК.
-          Здесь показываются только проверенные привязки к УМК; лицензионные ограничения применяются
-          до передачи текста в браузер.
+          Требования рабочей программы входят в обязательное ядро автоматически. Материалы УМК
+          становятся частью дальнейшего сценария только после явного решения педагога «Использовать».
+          Исключение материала не удаляет его из УМК — оно фиксирует решение только для этого урока.
         </p>
       </div>
 
-      <div className="content-pack-summary">
+      <div className="content-pack-summary content-pack-summary--selection">
         <div>
           <span>Рабочая программа</span>
           <strong>{context.curriculumPack.title}</strong>
@@ -99,9 +120,14 @@ export function ContentContextPanel({ context, loading }: ContentContextPanelPro
           <small>{context.contentPack.id} · v{context.contentPack.version}</small>
         </div>
         <div>
-          <span>Режим содержания</span>
-          <strong>{context.contentMode}</strong>
-          <small>Режим не отменяет обязательное ядро РП.</small>
+          <span>Обязательное ядро</span>
+          <strong>{context.approvedContentSet.mandatoryRequirementIds.length} требований РП</strong>
+          <small>Защищено от исключения.</small>
+        </div>
+        <div>
+          <span>Решения по УМК</span>
+          <strong>{includedCount} включено · {excludedCount} исключено</strong>
+          <small>{undecidedCount ? `Ещё ${undecidedCount} без решения.` : 'Все материалы рассмотрены.'}</small>
         </div>
       </div>
 
@@ -110,7 +136,7 @@ export function ContentContextPanel({ context, loading }: ContentContextPanelPro
           <div>
             <span className="content-source-label">ОБЯЗАТЕЛЬНО ПО РП</span>
             <h3>Нормативное ядро урока</h3>
-            <p>Эти требования нельзя потерять при дальнейшем проектировании сценария и заданий.</p>
+            <p>Эти требования всегда входят в approved content set и не имеют действия «Исключить».</p>
           </div>
           <span className="count-badge">{context.curriculumRequirements.length}</span>
         </div>
@@ -118,7 +144,13 @@ export function ContentContextPanel({ context, loading }: ContentContextPanelPro
         {context.curriculumRequirements.length ? (
           <div className="content-card-list">
             {context.curriculumRequirements.map((requirement) => (
-              <article className="content-evidence-card" key={requirement.id}>
+              <article className="content-evidence-card content-evidence-card--locked" key={requirement.id}>
+                <div className="content-selection-topline">
+                  <span className="content-selection-state content-selection-state--locked">
+                    🔒 Входит обязательно
+                  </span>
+                  <span className="content-selection-explainer">Решение задаётся рабочей программой</span>
+                </div>
                 <div className="content-badge-row">
                   <span className="content-badge">{requirementKindLabels[requirement.kind]}</span>
                   <span className="content-badge">{stageLabels[requirement.allocationStage]}</span>
@@ -152,43 +184,81 @@ export function ContentContextPanel({ context, loading }: ContentContextPanelPro
         <div className="content-source-section__heading">
           <div>
             <span className="content-source-label">СОДЕРЖИТСЯ В УМК</span>
-            <h3>Проверенные материалы для этого урока</h3>
-            <p>В список входят только привязки УМК со статусом APPROVED.</p>
+            <h3>Выберите материалы, которые реально войдут в урок</h3>
+            <p>Доступны только mappings со статусом APPROVED. Каждое действие сохраняется как решение педагога с ревизией и provenance.</p>
           </div>
           <span className="count-badge">{context.umkEvidence.length}</span>
         </div>
 
         {context.umkEvidence.length ? (
           <div className="content-card-list">
-            {context.umkEvidence.map((item) => (
-              <article className="content-evidence-card" key={item.mappingId}>
-                <div className="content-evidence-card__title">
-                  <div>
-                    <span>{resourceLabels[item.resourceType]}</span>
-                    <h4>{item.title}</h4>
+            {context.umkEvidence.map((item) => {
+              const busy = busyMappingId === item.mappingId;
+              const stateClass = item.selection.state.toLowerCase();
+              return (
+                <article
+                  className={`content-evidence-card content-evidence-card--selectable is-${stateClass}`}
+                  key={item.mappingId}
+                >
+                  <div className="content-selection-topline">
+                    <span className={`content-selection-state is-${stateClass}`}>
+                      {selectionLabels[item.selection.state]}
+                    </span>
+                    {item.selection.revision ? (
+                      <span className="content-selection-explainer">ревизия {item.selection.revision}</span>
+                    ) : (
+                      <span className="content-selection-explainer">Нужно решение педагога</span>
+                    )}
                   </div>
-                  <span className="content-unit-type">{item.unitType}</span>
-                </div>
-                <div className="content-badge-row">
-                  <span className="content-badge">{relationLabels[item.relationType]}</span>
-                  <span className="content-badge">уровень: {scopeLabels[item.mappingScope]}</span>
-                  {item.sectionRef ? <span className="content-badge">{item.sectionRef}</span> : null}
-                  {item.pages ? <span className="content-badge">{item.pages}</span> : null}
-                </div>
 
-                {item.text ? <p className="content-evidence-text">{item.text}</p> : null}
-                {item.textRestricted ? (
-                  <div className="content-restricted-note">
-                    <strong>Текст не раскрывается</strong>
-                    <p>
-                      Для этого источника разрешены только метаданные. Платформа не передаёт сохранённый
-                      текст в браузер и не использует ограничение как повод подменить источник AI-реконструкцией.
-                    </p>
+                  <div className="content-evidence-card__title">
+                    <div>
+                      <span>{resourceLabels[item.resourceType]}</span>
+                      <h4>{item.title}</h4>
+                    </div>
+                    <span className="content-unit-type">{item.unitType}</span>
                   </div>
-                ) : null}
-                <SourceProvenance item={item} />
-              </article>
-            ))}
+                  <div className="content-badge-row">
+                    <span className="content-badge">{relationLabels[item.relationType]}</span>
+                    <span className="content-badge">уровень: {scopeLabels[item.mappingScope]}</span>
+                    {item.sectionRef ? <span className="content-badge">{item.sectionRef}</span> : null}
+                    {item.pages ? <span className="content-badge">{item.pages}</span> : null}
+                  </div>
+
+                  {item.text ? <p className="content-evidence-text">{item.text}</p> : null}
+                  {item.textRestricted ? (
+                    <div className="content-restricted-note">
+                      <strong>Текст не раскрывается</strong>
+                      <p>
+                        Для этого источника разрешены только метаданные. Решение можно принять по
+                        доступному описанию, но платформа не передаёт ограниченный текст в браузер и
+                        не заменяет его AI-реконструкцией.
+                      </p>
+                    </div>
+                  ) : null}
+                  <SourceProvenance item={item} />
+
+                  <div className="content-selection-actions">
+                    <button
+                      className="button button-primary"
+                      type="button"
+                      disabled={busy || item.selection.state === 'INCLUDED'}
+                      onClick={() => void onSetUmkDecision(item, 'INCLUDED')}
+                    >
+                      {busy ? 'Сохраняем…' : '✓ Использовать'}
+                    </button>
+                    <button
+                      className="button button-ghost"
+                      type="button"
+                      disabled={busy || item.selection.state === 'EXCLUDED'}
+                      onClick={() => void onSetUmkDecision(item, 'EXCLUDED')}
+                    >
+                      Не использовать
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
           </div>
         ) : (
           <div className="content-empty-state">
@@ -210,8 +280,8 @@ export function ContentContextPanel({ context, loading }: ContentContextPanelPro
         <div className="content-empty-state">
           <strong>Дополнительные материалы не запрашивались</strong>
           <p>
-            В первой версии этого шага здесь нет искусственно сгенерированного контента. Следующий слой
-            добавит явный запрос, provenance и отдельное решение педагога о включении материала.
+            AI-дополнение появится отдельным управляемым действием с provenance. Оно также не сможет
+            попасть в сценарий без явного решения педагога.
           </p>
         </div>
       </section>
