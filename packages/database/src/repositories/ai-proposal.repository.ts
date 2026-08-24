@@ -4,6 +4,7 @@ import {
   type AiProposalCandidate,
   type AiProposalStatus,
   type LessonAiProposal,
+  type LessonAiProposalProcessingRepository,
   type LessonAiProposalRepository,
   type QueueLessonAiProposalInput
 } from '@tehkarta/application';
@@ -139,7 +140,9 @@ function assertIdempotentReplayMatches(
   }
 }
 
-export class PostgresLessonAiProposalRepository implements LessonAiProposalRepository {
+export class PostgresLessonAiProposalRepository
+  implements LessonAiProposalRepository, LessonAiProposalProcessingRepository
+{
   constructor(private readonly pool: Pool) {}
 
   async queue(
@@ -149,11 +152,6 @@ export class PostgresLessonAiProposalRepository implements LessonAiProposalRepos
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-
-      // Serialize concurrent replays of the same request key across horizontally
-      // scaled API instances. Without this lock, two requests could both miss the
-      // initial lookup and race on the unique constraint instead of behaving as
-      // clean idempotent replays.
       await client.query(
         `SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2, 0))`,
         [context.workspaceId, input.idempotencyKey]
@@ -180,8 +178,12 @@ export class PostgresLessonAiProposalRepository implements LessonAiProposalRepos
       await client.query(
         `INSERT INTO async_jobs(
            id, workspace_id, job_type, schema_version, status,
-           idempotency_key, payload_json, requested_by, created_at, updated_at
-         ) VALUES ($1, $2, 'LESSON_DECISION_PROPOSAL', '1', 'QUEUED', $3, $4::jsonb, $5, $6, $6)`,
+           idempotency_key, payload_json, requested_by,
+           available_at, created_at, updated_at
+         ) VALUES (
+           $1, $2, 'LESSON_DECISION_PROPOSAL', '1', 'QUEUED',
+           $3, $4::jsonb, $5, $6, $6, $6
+         )`,
         [
           input.jobId,
           context.workspaceId,
@@ -261,5 +263,152 @@ export class PostgresLessonAiProposalRepository implements LessonAiProposalRepos
     );
 
     return result.rows.map(mapProposal);
+  }
+
+  async getById(context: RequestContext, proposalId: string): Promise<LessonAiProposal | null> {
+    const result = await this.pool.query<ProposalRow>(
+      `SELECT ${SELECT_COLUMNS}
+       FROM lesson_ai_proposals
+       WHERE workspace_id = $1 AND id = $2`,
+      [context.workspaceId, proposalId]
+    );
+    const row = result.rows[0];
+    return row ? mapProposal(row) : null;
+  }
+
+  private async requireTransition(
+    context: RequestContext,
+    proposalId: string,
+    result: { rows: ProposalRow[] },
+    targetStatus: AiProposalStatus
+  ): Promise<LessonAiProposal> {
+    const row = result.rows[0];
+    if (row) return mapProposal(row);
+
+    const current = await this.getById(context, proposalId);
+    if (!current) {
+      throw new ApplicationError('NOT_FOUND', `AI proposal ${proposalId} was not found.`);
+    }
+    throw new ApplicationError(
+      'CONFLICT',
+      `AI proposal ${proposalId} cannot transition from ${current.status} to ${targetStatus}.`,
+      { currentStatus: current.status, targetStatus }
+    );
+  }
+
+  async markRunning(
+    context: RequestContext,
+    input: { proposalId: string; now: string }
+  ): Promise<LessonAiProposal> {
+    const result = await this.pool.query<ProposalRow>(
+      `UPDATE lesson_ai_proposals
+       SET status = 'RUNNING', updated_at = $3, error_json = NULL, completed_at = NULL
+       WHERE workspace_id = $1 AND id = $2 AND status IN ('QUEUED', 'RUNNING')
+       RETURNING ${SELECT_COLUMNS}`,
+      [context.workspaceId, input.proposalId, new Date(input.now)]
+    );
+    return this.requireTransition(context, input.proposalId, result, 'RUNNING');
+  }
+
+  async markReady(
+    context: RequestContext,
+    input: {
+      proposalId: string;
+      candidates: AiProposalCandidate[];
+      provider: string;
+      model: string;
+      promptVersion: string;
+      routingPolicyVersion: string;
+      now: string;
+    }
+  ): Promise<LessonAiProposal> {
+    const result = await this.pool.query<ProposalRow>(
+      `UPDATE lesson_ai_proposals
+       SET status = 'READY', candidates_json = $3::jsonb,
+           provider = $4, model = $5, prompt_version = $6,
+           routing_policy_version = $7, error_json = NULL,
+           completed_at = $8, updated_at = $8
+       WHERE workspace_id = $1 AND id = $2 AND status = 'RUNNING'
+       RETURNING ${SELECT_COLUMNS}`,
+      [
+        context.workspaceId,
+        input.proposalId,
+        JSON.stringify(input.candidates),
+        input.provider,
+        input.model,
+        input.promptVersion,
+        input.routingPolicyVersion,
+        new Date(input.now)
+      ]
+    );
+    return this.requireTransition(context, input.proposalId, result, 'READY');
+  }
+
+  async markQueuedForRetry(
+    context: RequestContext,
+    input: {
+      proposalId: string;
+      now: string;
+      error: Readonly<Record<string, unknown>>;
+    }
+  ): Promise<LessonAiProposal> {
+    const result = await this.pool.query<ProposalRow>(
+      `UPDATE lesson_ai_proposals
+       SET status = 'QUEUED', error_json = $3::jsonb,
+           completed_at = NULL, updated_at = $4
+       WHERE workspace_id = $1 AND id = $2 AND status IN ('QUEUED', 'RUNNING')
+       RETURNING ${SELECT_COLUMNS}`,
+      [
+        context.workspaceId,
+        input.proposalId,
+        JSON.stringify(input.error),
+        new Date(input.now)
+      ]
+    );
+    return this.requireTransition(context, input.proposalId, result, 'QUEUED');
+  }
+
+  async markStale(
+    context: RequestContext,
+    input: { proposalId: string; now: string; reason: string }
+  ): Promise<LessonAiProposal> {
+    const result = await this.pool.query<ProposalRow>(
+      `UPDATE lesson_ai_proposals
+       SET status = 'STALE', error_json = $3::jsonb,
+           completed_at = $4, updated_at = $4
+       WHERE workspace_id = $1 AND id = $2 AND status IN ('QUEUED', 'RUNNING')
+       RETURNING ${SELECT_COLUMNS}`,
+      [
+        context.workspaceId,
+        input.proposalId,
+        JSON.stringify({ code: 'PROPOSAL_STALE', message: input.reason }),
+        new Date(input.now)
+      ]
+    );
+    return this.requireTransition(context, input.proposalId, result, 'STALE');
+  }
+
+  async markFailed(
+    context: RequestContext,
+    input: {
+      proposalId: string;
+      now: string;
+      error: Readonly<Record<string, unknown>>;
+    }
+  ): Promise<LessonAiProposal> {
+    const result = await this.pool.query<ProposalRow>(
+      `UPDATE lesson_ai_proposals
+       SET status = 'FAILED', error_json = $3::jsonb,
+           completed_at = $4, updated_at = $4
+       WHERE workspace_id = $1 AND id = $2 AND status IN ('QUEUED', 'RUNNING')
+       RETURNING ${SELECT_COLUMNS}`,
+      [
+        context.workspaceId,
+        input.proposalId,
+        JSON.stringify(input.error),
+        new Date(input.now)
+      ]
+    );
+    return this.requireTransition(context, input.proposalId, result, 'FAILED');
   }
 }

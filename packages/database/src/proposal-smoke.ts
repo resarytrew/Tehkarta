@@ -1,8 +1,16 @@
 import { Pool } from 'pg';
-import { ApplicationError, RequestCoreDecisionAiProposal } from '@tehkarta/application';
+import {
+  ApplicationError,
+  ProcessLessonDecisionProposal,
+  RequestCoreDecisionAiProposal,
+  RunNextLessonDecisionProposalJob,
+  type LessonDecisionProposalGenerator
+} from '@tehkarta/application';
 import type { Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
 import { migrateDatabase } from './migrate.js';
 import { PostgresLessonAiProposalRepository } from './repositories/ai-proposal.repository.js';
+import { PostgresAsyncJobProcessingRepository } from './repositories/async-job.repository.js';
+import { PostgresCourseRepository } from './repositories/course.repository.js';
 import { PostgresLessonRepository } from './repositories/lesson.repository.js';
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -10,7 +18,7 @@ if (!databaseUrl) throw new Error('DATABASE_URL is required for AI proposal smok
 
 await migrateDatabase({ databaseUrl });
 
-const pool = new Pool({ connectionString: databaseUrl, max: 2 });
+const pool = new Pool({ connectionString: databaseUrl, max: 3 });
 const fixedNow = new Date('2026-08-23T18:00:00.000Z');
 const clock: Clock = { now: () => new Date(fixedNow) };
 let issuedId = 0;
@@ -29,7 +37,9 @@ const teacherInstruction =
 
 try {
   const lessons = new PostgresLessonRepository(pool);
+  const courses = new PostgresCourseRepository(pool);
   const proposals = new PostgresLessonAiProposalRepository(pool);
+  const jobs = new PostgresAsyncJobProcessingRepository(pool);
   const requestProposal = new RequestCoreDecisionAiProposal({ lessons, proposals, clock, ids });
 
   const before = await lessons.getById(context, 'lesson_smoke');
@@ -127,7 +137,123 @@ try {
     throw new Error('AI proposal leaked across workspace boundaries.');
   }
 
-  console.info('[database] AI proposal isolation + queue smoke test passed');
+  let generationCalls = 0;
+  const generator: LessonDecisionProposalGenerator = {
+    async generate(input) {
+      generationCalls += 1;
+      if (
+        input.targetValue !== 'Почему в XIX в. промышленная революция достигла огромных успехов?'
+      ) {
+        throw new Error('Worker did not receive the exact target value captured by teacher state.');
+      }
+      if (
+        input.context.approvedProblemQuestion !==
+        'Почему в XIX в. промышленная революция достигла огромных успехов?'
+      ) {
+        throw new Error('Approved teacher problem question was absent from generation context.');
+      }
+      if (Object.keys(input.context.approvedPedagogicalProfile).length !== 0) {
+        throw new Error('Unapproved pedagogical profile data leaked into AI generation context.');
+      }
+
+      return {
+        candidates: [
+          {
+            id: 'candidate-1',
+            value: 'Почему промышленный рывок XIX века оказался столь масштабным?',
+            rationale: 'Формулировка короче и сохраняет причинно-следственный характер.'
+          }
+        ],
+        provider: 'smoke-provider',
+        model: 'smoke-model',
+        promptVersion: 'proposal-v1-smoke',
+        routingPolicyVersion: 'routing-v1-smoke'
+      };
+    }
+  };
+
+  const processor = new ProcessLessonDecisionProposal({
+    lessons,
+    courses,
+    proposals,
+    generator,
+    clock
+  });
+  const runner = new RunNextLessonDecisionProposalJob({ jobs, proposals, processor, clock });
+
+  const processed = await runner.execute('worker-smoke-1');
+  if (
+    processed.status !== 'PROCESSED' ||
+    processed.proposalId !== proposal.id ||
+    processed.proposalStatus !== 'READY'
+  ) {
+    throw new Error('Worker did not complete the queued AI proposal as READY.');
+  }
+  if (generationCalls !== 1) {
+    throw new Error('AI proposal worker did not invoke the generator exactly once.');
+  }
+
+  const ready = await proposals.getById(context, proposal.id);
+  if (
+    ready?.status !== 'READY' ||
+    ready.candidates[0]?.value !== 'Почему промышленный рывок XIX века оказался столь масштабным?' ||
+    ready.provider !== 'smoke-provider'
+  ) {
+    throw new Error('Generated candidates were not persisted as a separate READY proposal.');
+  }
+
+  const authoritativeAfterGeneration = await lessons.getById(context, 'lesson_smoke');
+  if (
+    authoritativeAfterGeneration?.version !== 3 ||
+    authoritativeAfterGeneration.problemQuestion?.meta.status !== 'APPROVED' ||
+    authoritativeAfterGeneration.problemQuestion.meta.revision !== 3 ||
+    authoritativeAfterGeneration.problemQuestion.value !==
+      'Почему в XIX в. промышленная революция достигла огромных успехов?'
+  ) {
+    throw new Error('AI worker modified authoritative teacher state while generating a proposal.');
+  }
+
+  const staleCandidate = await requestProposal.execute(context, {
+    lessonId: 'lesson_smoke',
+    semanticKey: 'problemQuestion',
+    action: 'VARIANTS',
+    expectedLessonVersion: 3,
+    candidateCount: 3,
+    requestKey: 'proposal-smoke-request-0002'
+  });
+
+  await pool.query(
+    `UPDATE lessons
+     SET version = version + 1, updated_at = now()
+     WHERE id = 'lesson_smoke' AND workspace_id = 'ws_smoke'`
+  );
+
+  const staleRun = await runner.execute('worker-smoke-1');
+  if (
+    staleRun.status !== 'PROCESSED' ||
+    staleRun.proposalId !== staleCandidate.id ||
+    staleRun.proposalStatus !== 'STALE'
+  ) {
+    throw new Error('Worker did not mark a proposal stale after lesson state changed.');
+  }
+  if (generationCalls !== 1) {
+    throw new Error('Stale AI proposal incorrectly invoked the generator.');
+  }
+
+  const stale = await proposals.getById(context, staleCandidate.id);
+  if (stale?.status !== 'STALE') {
+    throw new Error('Stale proposal state was not persisted.');
+  }
+
+  const firstJobAfter = await pool.query<{ status: string; result_json: unknown }>(
+    `SELECT status, result_json FROM async_jobs WHERE id = $1`,
+    [proposal.asyncJobId]
+  );
+  if (firstJobAfter.rows[0]?.status !== 'SUCCEEDED') {
+    throw new Error('Successfully generated proposal did not complete its async job.');
+  }
+
+  console.info('[database] AI proposal queue + worker safety smoke test passed');
 } finally {
   await pool.end();
 }
