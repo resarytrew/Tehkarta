@@ -61,13 +61,26 @@ export class PostgresLessonInvalidationRepository implements LessonInvalidationR
         throw new Error('Cannot create invalidations for a lesson outside the request workspace.');
       }
 
+      const sourceKindResult = await client.query<{ source_kind: string }>(
+        `SELECT CASE
+           WHEN EXISTS (
+             SELECT 1
+             FROM lesson_content_selections
+             WHERE id = $1 AND workspace_id = $2 AND lesson_id = $3
+           ) THEN 'CONTENT_SELECTION'
+           ELSE 'LESSON_DECISION'
+         END AS source_kind`,
+        [input.sourceDecisionId, context.workspaceId, input.lessonId]
+      );
+      const sourceKind = sourceKindResult.rows[0]?.source_kind ?? 'LESSON_DECISION';
+
       for (const semanticKey of input.affectedSemanticKeys) {
         const id = `${input.sourceDecisionId}:r${input.sourceRevision}:${semanticKey}`;
         await client.query(
           `INSERT INTO lesson_invalidations (
              id, workspace_id, lesson_id, source_decision_id, source_revision,
-             affected_semantic_key, status, created_at
-           ) VALUES ($1, $2, $3, $4, $5, $6, 'STALE', now())
+             affected_semantic_key, status, created_at, source_kind
+           ) VALUES ($1, $2, $3, $4, $5, $6, 'STALE', now(), $7)
            ON CONFLICT (id) DO NOTHING`,
           [
             id,
@@ -75,7 +88,8 @@ export class PostgresLessonInvalidationRepository implements LessonInvalidationR
             input.lessonId,
             input.sourceDecisionId,
             input.sourceRevision,
-            semanticKey
+            semanticKey,
+            sourceKind
           ]
         );
       }
