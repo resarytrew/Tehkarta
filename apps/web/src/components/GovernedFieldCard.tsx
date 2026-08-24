@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { GovernedField } from '@tehkarta/domain';
+import { TehkartaApiClient } from '../api.js';
 import type { CoreDecisionKey, LessonAiProposal } from '../types.js';
 import { AiProposalPanel } from './AiProposalPanel.js';
 
@@ -19,6 +20,17 @@ interface GovernedFieldCardProps {
   onAiAction(action: AiFieldAction, semanticKey: CoreDecisionKey): Promise<void>;
   onApplyAiCandidate(proposalId: string, candidateId: string): Promise<void>;
 }
+
+const proposalStatusLabel: Record<LessonAiProposal['status'], string> = {
+  QUEUED: 'В очереди',
+  RUNNING: 'Генерируется',
+  READY: 'Готово',
+  APPLIED: 'Применено',
+  DISMISSED: 'Отклонено',
+  STALE: 'Устарело',
+  FAILED: 'Ошибка',
+  CANCELLED: 'Отменено'
+};
 
 function statusPresentation(field?: GovernedField<string>): {
   label: string;
@@ -56,6 +68,13 @@ function statusPresentation(field?: GovernedField<string>): {
   };
 }
 
+function putProposalFirst(
+  current: LessonAiProposal[],
+  proposal: LessonAiProposal
+): LessonAiProposal[] {
+  return [proposal, ...current.filter((item) => item.id !== proposal.id)];
+}
+
 export function GovernedFieldCard({
   semanticKey,
   title,
@@ -73,14 +92,61 @@ export function GovernedFieldCard({
   const [editing, setEditing] = useState(!field);
   const [draft, setDraft] = useState(field?.value ?? '');
   const [localError, setLocalError] = useState<string | null>(null);
+  const [proposalHistory, setProposalHistory] = useState<LessonAiProposal[]>(
+    latestProposal ? [latestProposal] : []
+  );
+  const [historyError, setHistoryError] = useState<string | null>(null);
+
+  const proposalApi = useMemo(() => {
+    if (!latestProposal) return null;
+    const csrfToken = (
+      window.sessionStorage.getItem('tehkarta.csrfToken') ??
+      import.meta.env.VITE_DEV_CSRF_TOKEN ??
+      ''
+    ).trim();
+    return new TehkartaApiClient({
+      baseUrl: import.meta.env.VITE_API_BASE_URL ?? '',
+      workspaceId: latestProposal.workspaceId,
+      ...(csrfToken ? { csrfToken } : {})
+    });
+  }, [latestProposal?.workspaceId]);
 
   useEffect(() => {
     if (!editing) setDraft(field?.value ?? '');
   }, [field, editing]);
 
+  useEffect(() => {
+    if (!latestProposal || !proposalApi) {
+      setProposalHistory([]);
+      setHistoryError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setProposalHistory((current) => putProposalFirst(current, latestProposal));
+    void proposalApi
+      .listAiProposals(latestProposal.lessonId, semanticKey)
+      .then((items) => {
+        if (cancelled) return;
+        setProposalHistory(items);
+        setHistoryError(null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setHistoryError(
+          error instanceof Error ? error.message : 'Не удалось загрузить историю AI-предложений.'
+        );
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [latestProposal?.id, latestProposal?.updatedAt, proposalApi, semanticKey]);
+
   const status = useMemo(() => statusPresentation(field), [field]);
   const changed = draft.trim() !== (field?.value ?? '').trim();
   const valid = draft.trim().length >= 3;
+  const activeProposal = proposalHistory[0] ?? latestProposal;
 
   async function run(action: () => Promise<void>) {
     setLocalError(null);
@@ -89,6 +155,19 @@ export function GovernedFieldCard({
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : 'Не удалось выполнить действие.');
     }
+  }
+
+  async function dismissActiveProposal(): Promise<LessonAiProposal> {
+    if (!proposalApi || !activeProposal) {
+      throw new Error('AI-предложение недоступно для отклонения.');
+    }
+    const dismissed = await proposalApi.dismissAiProposal(activeProposal.lessonId, activeProposal.id);
+    setProposalHistory((current) => putProposalFirst(current, dismissed));
+    return dismissed;
+  }
+
+  async function requestMoreVariants(): Promise<void> {
+    await onAiAction('variants', semanticKey);
   }
 
   return (
@@ -202,15 +281,45 @@ export function GovernedFieldCard({
         </button>
       </div>
 
-      {latestProposal ? (
+      {activeProposal ? (
         <AiProposalPanel
-          proposal={latestProposal}
+          proposal={activeProposal}
           applyingCandidateId={applyingAiCandidateId}
           onApplyCandidate={(candidateId) =>
-            onApplyAiCandidate(latestProposal.id, candidateId)
+            onApplyAiCandidate(activeProposal.id, candidateId)
           }
+          onDismiss={dismissActiveProposal}
+          onRequestMore={requestMoreVariants}
         />
       ) : null}
+
+      {proposalHistory.length > 1 ? (
+        <details className="ai-proposal-history">
+          <summary>История AI-предложений · {proposalHistory.length}</summary>
+          <div className="ai-proposal-history__list">
+            {proposalHistory.slice(1).map((proposal) => (
+              <div className="ai-proposal-history__item" key={proposal.id}>
+                <div>
+                  <strong>{proposalStatusLabel[proposal.status]}</strong>
+                  <span>{new Date(proposal.createdAt).toLocaleString('ru-RU')}</span>
+                </div>
+                <p>
+                  {proposal.candidates[0]?.value ??
+                    (proposal.status === 'FAILED'
+                      ? 'Генерация завершилась ошибкой.'
+                      : 'Предложение без сохранённого кандидата.')}
+                </p>
+                <small>
+                  {proposal.provider && proposal.model
+                    ? `${proposal.provider} · ${proposal.model}`
+                    : `Proposal ${proposal.id}`}
+                </small>
+              </div>
+            ))}
+          </div>
+        </details>
+      ) : null}
+      {historyError ? <div className="inline-error">История: {historyError}</div> : null}
     </article>
   );
 }
