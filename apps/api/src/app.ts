@@ -46,7 +46,7 @@ export interface ApiDependencies {
   proposalApplication: LessonAiProposalApplicationRepository;
   methodologyFeedback: MethodologyFeedbackRepository;
   contentContext: LessonContentContextRepository;
-  contentSelections: LessonContentSelectionRepository;
+  contentSelections?: LessonContentSelectionRepository;
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
@@ -431,16 +431,18 @@ export async function createApiApp(
     authorization: dependencies.authorization
   });
 
-  await registerContentSelectionRoutes(app, {
-    auth: authRuntime,
-    lessons: dependencies.lessons,
-    contentContext: dependencies.contentContext,
-    contentSelections: dependencies.contentSelections,
-    invalidations: dependencies.invalidations,
-    authorization: dependencies.authorization,
-    clock: dependencies.clock,
-    ids: dependencies.ids
-  });
+  if (dependencies.contentSelections) {
+    await registerContentSelectionRoutes(app, {
+      auth: authRuntime,
+      lessons: dependencies.lessons,
+      contentContext: dependencies.contentContext,
+      contentSelections: dependencies.contentSelections,
+      invalidations: dependencies.invalidations,
+      authorization: dependencies.authorization,
+      clock: dependencies.clock,
+      ids: dependencies.ids
+    });
+  }
 
   app.post('/api/v1/auth/logout', async (request, reply) => {
     await requireCsrf(request, authRuntime);
