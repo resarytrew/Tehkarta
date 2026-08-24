@@ -148,6 +148,8 @@ export interface MethodologyRecommendationBundle {
 
 export type SourceAccessLevel = 'METADATA_ONLY' | 'PREVIEW' | 'FULL';
 export type ContentContextScope = 'COURSE' | 'SECTION' | 'LESSON';
+export type ContentSelectionState = 'UNDECIDED' | 'INCLUDED' | 'EXCLUDED';
+export type ContentSelectionDecision = 'INCLUDED' | 'EXCLUDED';
 
 export interface ContentContextSource {
   sourceId: string;
@@ -185,6 +187,12 @@ export interface LessonUmkEvidenceItem {
   text?: string;
   textRestricted: boolean;
   source: ContentContextSource;
+  selection: {
+    state: ContentSelectionState;
+    revision?: number;
+    actorUserId?: string;
+    updatedAt?: string;
+  };
 }
 
 export interface LessonContentContext {
@@ -195,7 +203,33 @@ export interface LessonContentContext {
   contentPack: { id: string; version: string; title: string };
   curriculumRequirements: LessonCurriculumRequirement[];
   umkEvidence: LessonUmkEvidenceItem[];
+  approvedContentSet: {
+    mandatoryRequirementIds: string[];
+    includedUmkMappingIds: string[];
+    excludedUmkMappingIds: string[];
+    undecidedUmkMappingIds: string[];
+  };
   aiSupplemental: [];
+}
+
+export interface LessonContentSelection {
+  id: string;
+  workspaceId: string;
+  lessonId: string;
+  sourceKind: 'UMK';
+  sourceRefId: string;
+  decision: ContentSelectionDecision;
+  revision: number;
+  contentPackId: string;
+  contentPackVersion: string;
+  sourceDocumentId: string;
+  sourceDocumentVersion: string;
+  sourceUnitId: string;
+  titleSnapshot: string;
+  contentHash?: string;
+  actorUserId: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface LoginMembership {
@@ -239,6 +273,12 @@ export interface GovernanceResponse {
 
 export interface ApplyAiProposalResponse extends GovernanceResponse {
   proposal: LessonAiProposal;
+}
+
+export interface SetContentSelectionResponse extends GovernanceResponse {
+  contentContext: LessonContentContext;
+  selection: LessonContentSelection;
+  changed: boolean;
 }
 
 export interface ApiErrorPayload {
