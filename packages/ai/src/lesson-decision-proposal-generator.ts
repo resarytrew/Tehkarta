@@ -1,11 +1,20 @@
-import type {
-  AiProposalAction,
-  ApprovedProposalGenerationContext,
-  LessonDecisionProposalGenerator,
-  LessonAiProposal,
-  ProposalGenerationResult
+import { createHash } from 'node:crypto';
+import {
+  ApplicationError,
+  type AiProposalAction,
+  type ApprovedProposalGenerationContext,
+  type LessonDecisionProposalGenerator,
+  type LessonAiProposal,
+  type ProposalGenerationResult
 } from '@tehkarta/application';
-import type { AIProvider, AIRouter, GenerationTask, ModelRoute } from './index.js';
+import type {
+  AIProvider,
+  AIRouter,
+  GeneratedText,
+  GenerationTask,
+  ModelRoute
+} from './index.js';
+import { AIProviderError } from './provider-errors.js';
 
 export interface AIProviderResolver {
   resolve(route: ModelRoute): AIProvider;
@@ -17,7 +26,7 @@ interface RawCandidate {
   distinction?: string;
 }
 
-const PROMPT_VERSION = 'lesson-decision-proposal-v1';
+export const LESSON_DECISION_PROPOSAL_PROMPT_VERSION = 'lesson-decision-proposal-v1';
 
 function taskForAction(action: AiProposalAction): GenerationTask {
   return action === 'VARIANTS' ? 'VARIANTS' : 'REFORMULATE';
@@ -148,6 +157,74 @@ function parseResponse(value: unknown, expectedCount: number): RawCandidate[] {
   });
 }
 
+function promptInputHash(input: {
+  task: GenerationTask;
+  route: ModelRoute;
+  system: string;
+  prompt: string;
+  schema: Readonly<Record<string, unknown>>;
+  routingPolicyVersion: string;
+}): string {
+  return createHash('sha256')
+    .update(
+      JSON.stringify({
+        task: input.task,
+        provider: input.route.provider,
+        model: input.route.model,
+        reasoningEffort: input.route.reasoningEffort,
+        promptVersion: LESSON_DECISION_PROPOSAL_PROMPT_VERSION,
+        routingPolicyVersion: input.routingPolicyVersion,
+        system: input.system,
+        prompt: input.prompt,
+        schema: input.schema
+      })
+    )
+    .digest('hex');
+}
+
+function traceDetails(input: {
+  task: GenerationTask;
+  route: ModelRoute;
+  inputHash: string;
+  routingPolicyVersion: string;
+  generated?: GeneratedText;
+  providerError?: AIProviderError;
+  retryable: boolean;
+  errorClass: string;
+}): Readonly<Record<string, unknown>> {
+  const latencyMs = input.generated?.latencyMs ?? input.providerError?.latencyMs;
+  return {
+    retryable: input.retryable,
+    errorClass: input.errorClass,
+    taskType: input.task,
+    provider: input.route.provider,
+    model: input.route.model,
+    promptVersion: LESSON_DECISION_PROPOSAL_PROMPT_VERSION,
+    routingPolicyVersion: input.routingPolicyVersion,
+    inputHash: input.inputHash,
+    ...(latencyMs !== undefined ? { latencyMs } : {}),
+    ...(input.generated?.inputTokens !== undefined
+      ? { inputTokens: input.generated.inputTokens }
+      : {}),
+    ...(input.generated?.outputTokens !== undefined
+      ? { outputTokens: input.generated.outputTokens }
+      : {}),
+    ...(input.generated?.costMicrounits !== undefined
+      ? { costMicrounits: input.generated.costMicrounits }
+      : {}),
+    ...(input.generated?.requestId ? { providerRequestId: input.generated.requestId } : {}),
+    ...(input.providerError?.requestId
+      ? { providerRequestId: input.providerError.requestId }
+      : {}),
+    ...(input.providerError?.statusCode !== undefined
+      ? { statusCode: input.providerError.statusCode }
+      : {}),
+    ...(input.providerError?.retryAfterMs !== undefined
+      ? { retryAfterMs: input.providerError.retryAfterMs }
+      : {})
+  };
+}
+
 export class RoutedLessonDecisionProposalGenerator implements LessonDecisionProposalGenerator {
   constructor(
     private readonly router: AIRouter,
@@ -160,17 +237,82 @@ export class RoutedLessonDecisionProposalGenerator implements LessonDecisionProp
     targetValue?: string;
     context: ApprovedProposalGenerationContext;
   }): Promise<ProposalGenerationResult> {
-    const route = this.router.route(taskForAction(input.proposal.action));
+    const task = taskForAction(input.proposal.action);
+    const route = this.router.route(task);
     const provider = this.providers.resolve(route);
-    const raw = await provider.generateStructured<unknown>({
-      system: systemPrompt(),
-      prompt: userPrompt(input),
-      reasoningEffort: route.reasoningEffort,
-      temperature: input.proposal.action === 'VARIANTS' ? 0.6 : 0.35,
-      responseSchemaName: 'lesson_decision_proposal_v1',
-      responseSchema: proposalResponseSchema(input.proposal.candidateCountRequested)
+    const system = systemPrompt();
+    const prompt = userPrompt(input);
+    const responseSchema = proposalResponseSchema(input.proposal.candidateCountRequested);
+    const inputHash = promptInputHash({
+      task,
+      route,
+      system,
+      prompt,
+      schema: responseSchema,
+      routingPolicyVersion: this.routingPolicyVersion
     });
-    const parsed = parseResponse(raw, input.proposal.candidateCountRequested);
+
+    let generated: GeneratedText | undefined;
+    let raw: unknown;
+    try {
+      const result = await provider.generateStructuredResult<unknown>({
+        system,
+        prompt,
+        reasoningEffort: route.reasoningEffort,
+        temperature: input.proposal.action === 'VARIANTS' ? 0.6 : 0.35,
+        responseSchemaName: 'lesson_decision_proposal_v1',
+        responseSchema
+      });
+      generated = result.generated;
+      raw = result.value;
+    } catch (error) {
+      if (error instanceof AIProviderError) {
+        throw new ApplicationError(
+          'EXTERNAL_SERVICE_FAILED',
+          `AI provider ${route.provider}/${route.model} failed (${error.errorClass}).`,
+          traceDetails({
+            task,
+            route,
+            inputHash,
+            routingPolicyVersion: this.routingPolicyVersion,
+            providerError: error,
+            retryable: error.retryable,
+            errorClass: error.errorClass
+          })
+        );
+      }
+      throw new ApplicationError(
+        'EXTERNAL_SERVICE_FAILED',
+        `AI provider ${route.provider}/${route.model} returned an unexpected failure.`,
+        traceDetails({
+          task,
+          route,
+          inputHash,
+          routingPolicyVersion: this.routingPolicyVersion,
+          retryable: false,
+          errorClass: 'UNKNOWN'
+        })
+      );
+    }
+
+    let parsed: RawCandidate[];
+    try {
+      parsed = parseResponse(raw, input.proposal.candidateCountRequested);
+    } catch {
+      throw new ApplicationError(
+        'EXTERNAL_SERVICE_FAILED',
+        `AI provider ${route.provider}/${route.model} returned output that violates the proposal schema.`,
+        traceDetails({
+          task,
+          route,
+          inputHash,
+          routingPolicyVersion: this.routingPolicyVersion,
+          generated,
+          retryable: false,
+          errorClass: 'INVALID_RESPONSE'
+        })
+      );
+    }
 
     return {
       candidates: parsed.map((candidate, index) => ({
@@ -179,10 +321,19 @@ export class RoutedLessonDecisionProposalGenerator implements LessonDecisionProp
         rationale: candidate.rationale,
         ...(candidate.distinction ? { distinction: candidate.distinction } : {})
       })),
+      taskType: task,
       provider: provider.name,
       model: route.model,
-      promptVersion: PROMPT_VERSION,
-      routingPolicyVersion: this.routingPolicyVersion
+      promptVersion: LESSON_DECISION_PROPOSAL_PROMPT_VERSION,
+      routingPolicyVersion: this.routingPolicyVersion,
+      inputHash,
+      ...(generated.latencyMs !== undefined ? { latencyMs: generated.latencyMs } : {}),
+      ...(generated.inputTokens !== undefined ? { inputTokens: generated.inputTokens } : {}),
+      ...(generated.outputTokens !== undefined ? { outputTokens: generated.outputTokens } : {}),
+      ...(generated.costMicrounits !== undefined
+        ? { costMicrounits: generated.costMicrounits }
+        : {}),
+      ...(generated.requestId ? { providerRequestId: generated.requestId } : {})
     };
   }
 }
