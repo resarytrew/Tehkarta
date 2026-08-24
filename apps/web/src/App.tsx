@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiRequestError, TehkartaApiClient } from './api.js';
+import { ContentContextPanel } from './components/ContentContextPanel.js';
 import { CourseSidebar } from './components/CourseSidebar.js';
 import {
   GovernedFieldCard,
@@ -14,6 +15,7 @@ import type {
   CourseSummary,
   Lesson,
   LessonAiProposal,
+  LessonContentContext,
   LessonInvalidation,
   LessonSummary,
   MeResponse,
@@ -25,7 +27,7 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const WORKSPACE_STORAGE_KEY = 'tehkarta.workspaceId';
 const CSRF_STORAGE_KEY = 'tehkarta.csrfToken';
 
-type ActiveDesignStep = 2 | 3;
+type ActiveDesignStep = 2 | 3 | 4;
 
 const decisionCopy: Record<CoreDecisionKey, { title: string; description: string }> = {
   goal: {
@@ -137,6 +139,7 @@ export function App({ onSessionEnded }: AppProps) {
   const [invalidations, setInvalidations] = useState<LessonInvalidation[]>([]);
   const [proposals, setProposals] = useState<LessonAiProposal[]>([]);
   const [methodology, setMethodology] = useState<MethodologyRecommendationBundle | null>(null);
+  const [contentContext, setContentContext] = useState<LessonContentContext | null>(null);
   const [methodologyLoading, setMethodologyLoading] = useState(false);
   const [methodologyBusyRecommendationId, setMethodologyBusyRecommendationId] = useState<string | null>(null);
   const [addingOutcome, setAddingOutcome] = useState(false);
@@ -188,16 +191,19 @@ export function App({ onSessionEnded }: AppProps) {
   const loadLesson = useCallback(
     async (lessonId: string) => {
       if (!api) return;
-      const [nextLesson, nextInvalidations, nextProposals, nextMethodology] = await Promise.all([
-        api.getLesson(lessonId),
-        api.listInvalidations(lessonId),
-        api.listAiProposals(lessonId),
-        api.getMethodologyRecommendations(lessonId)
-      ]);
+      const [nextLesson, nextInvalidations, nextProposals, nextMethodology, nextContentContext] =
+        await Promise.all([
+          api.getLesson(lessonId),
+          api.listInvalidations(lessonId),
+          api.listAiProposals(lessonId),
+          api.getMethodologyRecommendations(lessonId),
+          api.getLessonContentContext(lessonId)
+        ]);
       setLesson(nextLesson);
       setInvalidations(nextInvalidations);
       setProposals(nextProposals);
       setMethodology(nextMethodology);
+      setContentContext(nextContentContext);
       setLessons((current) =>
         current.map((summary) =>
           summary.id === nextLesson.id ? { ...summary, version: nextLesson.version } : summary
@@ -230,6 +236,7 @@ export function App({ onSessionEnded }: AppProps) {
         setInvalidations([]);
         setProposals([]);
         setMethodology(null);
+        setContentContext(null);
         persistSelection(nextCourse.id, null);
       }
     },
@@ -262,6 +269,7 @@ export function App({ onSessionEnded }: AppProps) {
         setInvalidations([]);
         setProposals([]);
         setMethodology(null);
+        setContentContext(null);
       }
     } catch (error) {
       if (!handleAuthenticationFailure(error)) setFatalError(errorMessage(error));
@@ -652,7 +660,7 @@ export function App({ onSessionEnded }: AppProps) {
                   ['08', 'Карта урока']
                 ].map(([number, label], index) => {
                   const stepNumber = index + 1;
-                  const available = stepNumber === 2 || stepNumber === 3;
+                  const available = stepNumber === 2 || stepNumber === 3 || stepNumber === 4;
                   const current = activeStep === stepNumber;
                   return (
                     <button
@@ -660,7 +668,7 @@ export function App({ onSessionEnded }: AppProps) {
                       key={number}
                       className={`design-step ${available ? 'is-available' : ''} ${current ? 'is-current' : ''}`}
                       onClick={() => {
-                        if (stepNumber === 2 || stepNumber === 3) {
+                        if (stepNumber === 2 || stepNumber === 3 || stepNumber === 4) {
                           setActiveStep(stepNumber);
                           return;
                         }
@@ -678,7 +686,7 @@ export function App({ onSessionEnded }: AppProps) {
                 })}
               </nav>
 
-              <div className={`workspace-grid ${activeStep === 3 ? 'workspace-grid--methodology' : ''}`}>
+              <div className={`workspace-grid ${activeStep === 3 || activeStep === 4 ? 'workspace-grid--methodology' : ''}`}>
                 <section className="workspace-main-column">
                   {activeStep === 2 ? (
                     <>
@@ -720,7 +728,7 @@ export function App({ onSessionEnded }: AppProps) {
                         );
                       })}
                     </>
-                  ) : (
+                  ) : activeStep === 3 ? (
                     <MethodologyConstructor
                       lesson={lesson}
                       bundle={methodology}
@@ -731,6 +739,8 @@ export function App({ onSessionEnded }: AppProps) {
                       onUseRecommendation={useMethodologyRecommendation}
                       onRejectRecommendation={rejectMethodologyRecommendation}
                     />
+                  ) : (
+                    <ContentContextPanel context={contentContext} loading={loading} />
                   )}
                 </section>
 
@@ -746,7 +756,11 @@ export function App({ onSessionEnded }: AppProps) {
 
                   <div className="context-panel">
                     <span className="eyebrow">
-                      {activeStep === 2 ? 'Контекст AI' : 'Контекст методики'}
+                      {activeStep === 2
+                        ? 'Контекст AI'
+                        : activeStep === 3
+                          ? 'Контекст методики'
+                          : 'Контекст содержания'}
                     </span>
                     <h3>Что уже зафиксировано</h3>
                     <div className="context-list">
@@ -764,7 +778,7 @@ export function App({ onSessionEnded }: AppProps) {
                       </div>
                       <div>
                         <span>УМК</span>
-                        <strong>{course?.contentPackId ?? 'Не привязан'}</strong>
+                        <strong>{contentContext?.contentPack.title ?? course?.contentPackId ?? 'Не привязан'}</strong>
                       </div>
                       <div>
                         <span>Утверждённых результатов</span>
@@ -783,11 +797,22 @@ export function App({ onSessionEnded }: AppProps) {
                           <span>AI-запросов по уроку</span>
                           <strong>{proposals.length}</strong>
                         </div>
-                      ) : (
+                      ) : activeStep === 3 ? (
                         <div>
                           <span>Активных рекомендаций</span>
                           <strong>{methodology?.recommendations.length ?? 0}</strong>
                         </div>
+                      ) : (
+                        <>
+                          <div>
+                            <span>Требований РП</span>
+                            <strong>{contentContext?.curriculumRequirements.length ?? 0}</strong>
+                          </div>
+                          <div>
+                            <span>Проверенных элементов УМК</span>
+                            <strong>{contentContext?.umkEvidence.length ?? 0}</strong>
+                          </div>
+                        </>
                       )}
                     </div>
                   </div>
@@ -800,6 +825,18 @@ export function App({ onSessionEnded }: AppProps) {
                         {methodology.pack.technology.antiPatterns.map((item) => (
                           <li key={item}>{item}</li>
                         ))}
+                      </ul>
+                    </div>
+                  ) : null}
+
+                  {activeStep === 4 ? (
+                    <div className="context-panel methodology-warning-panel">
+                      <span className="eyebrow">Защита источников</span>
+                      <h3>Что платформа не подменяет</h3>
+                      <ul>
+                        <li>Непроверенная привязка не выдаётся за содержание УМК.</li>
+                        <li>Ограниченный лицензией текст не передаётся в браузер.</li>
+                        <li>AI-дополнение не маркируется как РП или учебник.</li>
                       </ul>
                     </div>
                   ) : null}

@@ -37,6 +37,11 @@ jobs:
       - run: pnpm build
       - run: pnpm test
       - run: pnpm db:smoke
+      - name: Bootstrap authenticated RP/UMK development fixture twice
+        env:
+          DEV_BOOTSTRAP_EMAIL: teacher@bootstrap.test
+          DEV_BOOTSTRAP_PASSWORD: Bootstrap-Test-Password-2026!
+        run: pnpm db:bootstrap-dev && pnpm db:bootstrap-dev
 
   container:
     runs-on: ubuntu-latest

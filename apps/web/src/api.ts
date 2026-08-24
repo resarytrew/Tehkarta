@@ -9,6 +9,7 @@ import type {
   GovernanceResponse,
   Lesson,
   LessonAiProposal,
+  LessonContentContext,
   LessonInvalidation,
   LessonSummary,
   LoginResponse,
@@ -132,6 +133,13 @@ export class TehkartaApiClient {
   async getLesson(lessonId: string): Promise<Lesson> {
     const response = await this.request<ApiData<Lesson>>(
       `/api/v1/lessons/${encodeURIComponent(lessonId)}`
+    );
+    return response.data;
+  }
+
+  async getLessonContentContext(lessonId: string): Promise<LessonContentContext> {
+    const response = await this.request<ApiData<LessonContentContext>>(
+      `/api/v1/lessons/${encodeURIComponent(lessonId)}/content-context`
     );
     return response.data;
   }
