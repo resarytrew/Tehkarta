@@ -32,27 +32,41 @@ import { hashLoginPrincipal } from './security.js';
 const databaseUrl = process.env.DATABASE_URL;
 const maybeTest = databaseUrl ? test : test.skip;
 
+type FixtureIdKey =
+  | 'user'
+  | 'workspace'
+  | 'source'
+  | 'curriculumPack'
+  | 'curriculumCourse'
+  | 'curriculumSection'
+  | 'curriculumLesson'
+  | 'contentPack'
+  | 'course'
+  | 'section'
+  | 'lesson';
+
 maybeTest('Methodical Constructor uses only approved outcomes and applies teacher-authoritative choices', async () => {
   if (!databaseUrl) return;
   await migrateDatabase({ databaseUrl });
 
   const suffix = randomUUID().replaceAll('-', '').slice(0, 12);
   const subject = `История Methodology ${suffix}`;
+  const idKeys: FixtureIdKey[] = [
+    'user',
+    'workspace',
+    'source',
+    'curriculumPack',
+    'curriculumCourse',
+    'curriculumSection',
+    'curriculumLesson',
+    'contentPack',
+    'course',
+    'section',
+    'lesson'
+  ];
   const ids = Object.fromEntries(
-    [
-      'user',
-      'workspace',
-      'source',
-      'curriculumPack',
-      'curriculumCourse',
-      'curriculumSection',
-      'curriculumLesson',
-      'contentPack',
-      'course',
-      'section',
-      'lesson'
-    ].map((key) => [key, `${key}_methodology_${suffix}`])
-  ) as Record<string, string>;
+    idKeys.map((key) => [key, `${key}_methodology_${suffix}`])
+  ) as Record<FixtureIdKey, string>;
   const email = `methodology-${suffix}@example.test`;
   const password = `Methodology-${suffix}-password-strong`;
   const authKey = 'methodology-auth-ip-hash-key-at-least-32-characters';
