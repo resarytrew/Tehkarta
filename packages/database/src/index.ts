@@ -112,6 +112,7 @@ export * from './repositories/ai-proposal.repository.js';
 export * from './repositories/ai-proposal-application.repository.js';
 export * from './repositories/async-job.repository.js';
 export * from './repositories/content-context.repository.js';
+export * from './repositories/content-selection.repository.js';
 export * from './repositories/course.repository.js';
 export * from './repositories/identity.repository.js';
 export * from './repositories/lesson-invalidation.repository.js';
