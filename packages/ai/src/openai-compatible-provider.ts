@@ -1,8 +1,15 @@
 import type {
   AIProvider,
   GeneratedText,
-  GenerateOptions
+  GenerateOptions,
+  StructuredGeneration
 } from './index.js';
+import {
+  AIProviderError,
+  classifyHttpProviderFailure,
+  isTimeoutLikeError,
+  parseRetryAfterMs
+} from './provider-errors.js';
 
 export interface OpenAICompatibleProviderConfig {
   name: string;
@@ -24,6 +31,7 @@ interface ChatCompletionResponse {
   usage?: {
     prompt_tokens?: number;
     completion_tokens?: number;
+    cost?: number;
   };
 }
 
@@ -59,25 +67,95 @@ function jsonSchemaResponseFormat(options: GenerateOptions): unknown {
   return undefined;
 }
 
-function extractText(response: ChatCompletionResponse): string {
+function requestSignal(options: GenerateOptions, timeoutMs: number): AbortSignal {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  return options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+}
+
+function requestId(headers: Headers): string | undefined {
+  return (
+    headers.get('x-request-id') ??
+    headers.get('request-id') ??
+    headers.get('x-yandex-request-id') ??
+    undefined
+  );
+}
+
+function extractText(
+  response: ChatCompletionResponse,
+  provider: string,
+  model: string,
+  latencyMs: number,
+  remoteRequestId?: string
+): string {
   const content = response.choices?.[0]?.message?.content;
   if (typeof content !== 'string' || !content.trim()) {
-    throw new Error('AI provider returned an empty or non-text completion.');
+    throw new AIProviderError('AI provider returned an empty or non-text completion.', {
+      provider,
+      model,
+      errorClass: 'INVALID_RESPONSE',
+      retryable: false,
+      latencyMs,
+      ...(remoteRequestId ? { requestId: remoteRequestId } : {})
+    });
   }
   return content;
 }
 
-function safeRemoteError(status: number, body: string): Error {
-  const compact = body.replace(/\s+/g, ' ').trim().slice(0, 500);
-  return new Error(
-    `AI provider request failed with HTTP ${status}${compact ? `: ${compact}` : ''}`
+function httpFailure(
+  provider: string,
+  model: string,
+  response: Response,
+  latencyMs: number
+): AIProviderError {
+  const classified = classifyHttpProviderFailure(response.status);
+  const remoteRequestId = requestId(response.headers);
+  const retryAfterMs = parseRetryAfterMs(response.headers.get('retry-after'));
+  return new AIProviderError(
+    `AI provider request failed with HTTP ${response.status}.`,
+    {
+      provider,
+      model,
+      errorClass: classified.errorClass,
+      retryable: classified.retryable,
+      statusCode: response.status,
+      latencyMs,
+      ...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+      ...(remoteRequestId ? { requestId: remoteRequestId } : {})
+    }
   );
 }
 
+function transportFailure(
+  provider: string,
+  model: string,
+  error: unknown,
+  latencyMs: number
+): AIProviderError {
+  if (error instanceof AIProviderError) return error;
+  if (isTimeoutLikeError(error)) {
+    return new AIProviderError('AI provider request timed out.', {
+      provider,
+      model,
+      errorClass: 'TIMEOUT',
+      retryable: true,
+      latencyMs,
+      cause: error
+    });
+  }
+  return new AIProviderError('AI provider network request failed.', {
+    provider,
+    model,
+    errorClass: 'NETWORK',
+    retryable: true,
+    latencyMs,
+    cause: error
+  });
+}
+
 /**
- * Minimal OpenAI-compatible adapter with no SDK dependency. It works with
- * providers exposing `/v1/chat/completions` semantics, including Yandex Cloud
- * AI Studio's OpenAI-compatible endpoint. Secrets never enter logs here.
+ * OpenAI-compatible HTTP adapter. Provider response bodies are never copied to
+ * errors because upstream payloads may echo prompts or other sensitive input.
  */
 export class OpenAICompatibleChatProvider implements AIProvider {
   readonly name: string;
@@ -91,7 +169,7 @@ export class OpenAICompatibleChatProvider implements AIProvider {
     if (!config.apiKey.trim()) throw new Error('AI provider apiKey is required.');
     if (!config.model.trim()) throw new Error('AI provider model is required.');
 
-    this.name = config.name.trim();
+    this.name = config.name.trim().toLowerCase();
     this.baseUrl = cleanBaseUrl(config.baseUrl);
     this.timeoutMs = positiveNumber(config.timeoutMs, 90_000);
     this.maxTokens = positiveNumber(config.maxTokens, 2_000);
@@ -109,6 +187,7 @@ export class OpenAICompatibleChatProvider implements AIProvider {
   private async chat(options: GenerateOptions): Promise<{
     response: ChatCompletionResponse;
     latencyMs: number;
+    requestId?: string;
   }> {
     const responseFormat = jsonSchemaResponseFormat(options);
     const body = {
@@ -124,31 +203,41 @@ export class OpenAICompatibleChatProvider implements AIProvider {
     };
 
     const started = Date.now();
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(this.timeoutMs)
-    });
-    const latencyMs = Date.now() - started;
+    try {
+      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify(body),
+        signal: requestSignal(options, this.timeoutMs)
+      });
+      const latencyMs = Date.now() - started;
+      if (!response.ok) throw httpFailure(this.name, this.config.model, response, latencyMs);
 
-    if (!response.ok) {
-      throw safeRemoteError(response.status, await response.text());
+      return {
+        response: (await response.json()) as ChatCompletionResponse,
+        latencyMs,
+        ...(requestId(response.headers) ? { requestId: requestId(response.headers)! } : {})
+      };
+    } catch (error) {
+      throw transportFailure(this.name, this.config.model, error, Date.now() - started);
     }
-
-    return {
-      response: (await response.json()) as ChatCompletionResponse,
-      latencyMs
-    };
   }
 
   async generate(options: GenerateOptions): Promise<GeneratedText> {
     const result = await this.chat(options);
+    const text = extractText(
+      result.response,
+      this.name,
+      this.config.model,
+      result.latencyMs,
+      result.requestId
+    );
     const generated: GeneratedText = {
-      text: extractText(result.response),
+      text,
       provider: this.name,
       model: this.config.model,
-      latencyMs: result.latencyMs
+      latencyMs: result.latencyMs,
+      ...(result.requestId ? { requestId: result.requestId } : {})
     };
     if (typeof result.response.usage?.prompt_tokens === 'number') {
       generated.inputTokens = result.response.usage.prompt_tokens;
@@ -156,19 +245,41 @@ export class OpenAICompatibleChatProvider implements AIProvider {
     if (typeof result.response.usage?.completion_tokens === 'number') {
       generated.outputTokens = result.response.usage.completion_tokens;
     }
+    if (
+      typeof result.response.usage?.cost === 'number' &&
+      Number.isFinite(result.response.usage.cost) &&
+      result.response.usage.cost >= 0
+    ) {
+      generated.costMicrounits = Math.round(result.response.usage.cost * 1_000_000);
+    }
     return generated;
   }
 
-  async generateStructured<T>(options: GenerateOptions): Promise<T> {
+  async generateStructuredResult<T>(options: GenerateOptions): Promise<StructuredGeneration<T>> {
     const generated = await this.generate({
       ...options,
       responseSchemaName: options.responseSchemaName ?? 'structured_response'
     });
     try {
-      return JSON.parse(generated.text) as T;
-    } catch {
-      throw new Error('AI provider returned invalid JSON for a structured response.');
+      return {
+        value: JSON.parse(generated.text) as T,
+        generated
+      };
+    } catch (error) {
+      throw new AIProviderError('AI provider returned invalid JSON for a structured response.', {
+        provider: generated.provider,
+        model: generated.model,
+        errorClass: 'INVALID_RESPONSE',
+        retryable: false,
+        ...(generated.latencyMs !== undefined ? { latencyMs: generated.latencyMs } : {}),
+        ...(generated.requestId ? { requestId: generated.requestId } : {}),
+        cause: error
+      });
     }
+  }
+
+  async generateStructured<T>(options: GenerateOptions): Promise<T> {
+    return (await this.generateStructuredResult<T>(options)).value;
   }
 
   async embed(texts: string[]): Promise<number[][]> {
@@ -177,37 +288,60 @@ export class OpenAICompatibleChatProvider implements AIProvider {
     }
     if (texts.length === 0) return [];
 
-    const response = await fetch(`${this.baseUrl}/embeddings`, {
-      method: 'POST',
-      headers: this.headers(),
-      body: JSON.stringify({
-        model: this.config.embeddingModel,
-        input: texts
-      }),
-      signal: AbortSignal.timeout(this.timeoutMs)
-    });
-    if (!response.ok) {
-      throw safeRemoteError(response.status, await response.text());
-    }
-
-    const payload = (await response.json()) as EmbeddingsResponse;
-    const rows = payload.data;
-    if (!Array.isArray(rows) || rows.length !== texts.length) {
-      throw new Error('AI embedding provider returned an unexpected number of vectors.');
-    }
-
-    return rows
-      .slice()
-      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
-      .map((row, index) => {
-        if (
-          !Array.isArray(row.embedding) ||
-          row.embedding.length === 0 ||
-          !row.embedding.every((item) => typeof item === 'number' && Number.isFinite(item))
-        ) {
-          throw new Error(`AI embedding ${index + 1} is not a numeric vector.`);
-        }
-        return row.embedding as number[];
+    const started = Date.now();
+    try {
+      const response = await fetch(`${this.baseUrl}/embeddings`, {
+        method: 'POST',
+        headers: this.headers(),
+        body: JSON.stringify({
+          model: this.config.embeddingModel,
+          input: texts
+        }),
+        signal: AbortSignal.timeout(this.timeoutMs)
       });
+      const latencyMs = Date.now() - started;
+      if (!response.ok) {
+        throw httpFailure(this.name, this.config.embeddingModel, response, latencyMs);
+      }
+
+      const payload = (await response.json()) as EmbeddingsResponse;
+      const rows = payload.data;
+      if (!Array.isArray(rows) || rows.length !== texts.length) {
+        throw new AIProviderError('AI embedding provider returned an unexpected vector count.', {
+          provider: this.name,
+          model: this.config.embeddingModel,
+          errorClass: 'INVALID_RESPONSE',
+          retryable: false,
+          latencyMs
+        });
+      }
+
+      return rows
+        .slice()
+        .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+        .map((row, index) => {
+          if (
+            !Array.isArray(row.embedding) ||
+            row.embedding.length === 0 ||
+            !row.embedding.every((item) => typeof item === 'number' && Number.isFinite(item))
+          ) {
+            throw new AIProviderError(`AI embedding ${index + 1} is not a numeric vector.`, {
+              provider: this.name,
+              model: this.config.embeddingModel!,
+              errorClass: 'INVALID_RESPONSE',
+              retryable: false,
+              latencyMs
+            });
+          }
+          return row.embedding as number[];
+        });
+    } catch (error) {
+      throw transportFailure(
+        this.name,
+        this.config.embeddingModel,
+        error,
+        Date.now() - started
+      );
+    }
   }
 }
