@@ -67,73 +67,91 @@ maybeTest('HTTP login → approve → AI worker → READY → explicit Apply per
 
   const passwordHasher = new Argon2idPasswordHasher();
   const passwordHash = await passwordHasher.hash(password);
-  await pool.query(
-    `INSERT INTO users(id, email, normalized_email, display_name)
-     VALUES ($1, $2, $2, 'E2E Teacher');
-
-     INSERT INTO password_credentials(user_id, password_hash, algorithm, password_updated_at)
-     VALUES ($1, $3, 'argon2id', now());
-
-     INSERT INTO workspaces(id, slug, name, created_by)
-     VALUES ($4, $5, 'E2E workspace', $1);
-
-     INSERT INTO workspace_memberships(workspace_id, user_id, role, permissions)
-     VALUES ($4, $1, 'OWNER', '["course:read","course:write","lesson:read","lesson:write"]'::jsonb);
-
-     INSERT INTO source_documents(
-       id, source_kind, title, version, mime_type, checksum_sha256, rights_basis, processing_status
-     ) VALUES ($6, 'CURRICULUM', 'E2E curriculum', '1', 'application/json', $7, 'TEST_FIXTURE', 'READY');
-
-     INSERT INTO curriculum_packs(
-       id, subject, grade_min, grade_max, academic_year, version, status, title, source_document_id
-     ) VALUES ($8, 'История', 9, 9, '2026/27', '1', 'PUBLISHED', 'E2E curriculum pack', $6);
-
-     INSERT INTO curriculum_courses(id, curriculum_pack_id, subject, grade, title, ordinal, planned_hours)
-     VALUES ($9, $8, 'История', 9, 'Всеобщая история. История Нового времени. XIX — начало XX в.', 1, 23);
-
-     INSERT INTO curriculum_sections(id, curriculum_course_id, title, ordinal, planned_hours)
-     VALUES ($10, $9, 'Начало индустриальной эпохи', 1, 7);
-
-     INSERT INTO curriculum_lessons(id, curriculum_section_id, title, ordinal, planned_hours, duration_minutes)
-     VALUES ($11, $10, 'Экономика делает решающий рывок', 1, 1, 45);
-
-     INSERT INTO content_packs(
-       id, subject, grade, academic_year, version, status, title, curriculum_pack_id
-     ) VALUES ($12, 'История', 9, '2026/27', '1', 'PUBLISHED', 'E2E UMK fixture', $8);
-
-     INSERT INTO courses(
-       id, workspace_id, owner_user_id, curriculum_course_id,
-       curriculum_pack_id, curriculum_pack_version, content_pack_id, content_pack_version,
-       subject, grade, academic_year, title, created_by
-     ) VALUES ($13, $4, $1, $9, $8, '1', $12, '1', 'История', 9, '2026/27',
-       'Всеобщая история. История Нового времени. XIX — начало XX в.', $1);
-
-     INSERT INTO course_sections(
-       id, workspace_id, course_id, curriculum_section_id, position, title, planned_hours
-     ) VALUES ($14, $4, $13, $10, 1, 'Начало индустриальной эпохи', 7);
-
-     INSERT INTO lessons(
-       id, workspace_id, course_id, section_id, curriculum_lesson_id,
-       position, title, duration_minutes, created_by
-     ) VALUES ($15, $4, $13, $14, $11, 1, 'Экономика делает решающий рывок', 45, $1);`,
-    [
-      ids.user,
-      email,
-      passwordHash,
-      ids.workspace,
-      `e2e-${suffix}`,
-      ids.source,
-      `e2e-checksum-${suffix}`,
-      ids.curriculumPack,
-      ids.curriculumCourse,
-      ids.curriculumSection,
-      ids.curriculumLesson,
-      ids.contentPack,
-      ids.course,
-      ids.section,
-      ids.lesson
-    ]
-  );
+  const seed = await pool.connect();
+  try {
+    await seed.query('BEGIN');
+    await seed.query(
+      `INSERT INTO users(id, email, normalized_email, display_name)
+       VALUES ($1, $2, $2, 'E2E Teacher')`,
+      [ids.user, email]
+    );
+    await seed.query(
+      `INSERT INTO password_credentials(user_id, password_hash, algorithm, password_updated_at)
+       VALUES ($1, $2, 'argon2id', now())`,
+      [ids.user, passwordHash]
+    );
+    await seed.query(
+      `INSERT INTO workspaces(id, slug, name, created_by)
+       VALUES ($1, $2, 'E2E workspace', $3)`,
+      [ids.workspace, `e2e-${suffix}`, ids.user]
+    );
+    await seed.query(
+      `INSERT INTO workspace_memberships(workspace_id, user_id, role, permissions)
+       VALUES ($1, $2, 'OWNER', '["course:read","course:write","lesson:read","lesson:write"]'::jsonb)`,
+      [ids.workspace, ids.user]
+    );
+    await seed.query(
+      `INSERT INTO source_documents(
+         id, source_kind, title, version, mime_type, checksum_sha256, rights_basis, processing_status
+       ) VALUES ($1, 'CURRICULUM', 'E2E curriculum', '1', 'application/json', $2, 'TEST_FIXTURE', 'READY')`,
+      [ids.source, `e2e-checksum-${suffix}`]
+    );
+    await seed.query(
+      `INSERT INTO curriculum_packs(
+         id, subject, grade_min, grade_max, academic_year, version, status, title, source_document_id
+       ) VALUES ($1, 'История', 9, 9, '2026/27', '1', 'PUBLISHED', 'E2E curriculum pack', $2)`,
+      [ids.curriculumPack, ids.source]
+    );
+    await seed.query(
+      `INSERT INTO curriculum_courses(id, curriculum_pack_id, subject, grade, title, ordinal, planned_hours)
+       VALUES ($1, $2, 'История', 9, 'Всеобщая история. История Нового времени. XIX — начало XX в.', 1, 23)`,
+      [ids.curriculumCourse, ids.curriculumPack]
+    );
+    await seed.query(
+      `INSERT INTO curriculum_sections(id, curriculum_course_id, title, ordinal, planned_hours)
+       VALUES ($1, $2, 'Начало индустриальной эпохи', 1, 7)`,
+      [ids.curriculumSection, ids.curriculumCourse]
+    );
+    await seed.query(
+      `INSERT INTO curriculum_lessons(id, curriculum_section_id, title, ordinal, planned_hours, duration_minutes)
+       VALUES ($1, $2, 'Экономика делает решающий рывок', 1, 1, 45)`,
+      [ids.curriculumLesson, ids.curriculumSection]
+    );
+    await seed.query(
+      `INSERT INTO content_packs(
+         id, subject, grade, academic_year, version, status, title, curriculum_pack_id
+       ) VALUES ($1, 'История', 9, '2026/27', '1', 'PUBLISHED', 'E2E UMK fixture', $2)`,
+      [ids.contentPack, ids.curriculumPack]
+    );
+    await seed.query(
+      `INSERT INTO courses(
+         id, workspace_id, owner_user_id, curriculum_course_id,
+         curriculum_pack_id, curriculum_pack_version, content_pack_id, content_pack_version,
+         subject, grade, academic_year, title, created_by
+       ) VALUES ($1, $2, $3, $4, $5, '1', $6, '1', 'История', 9, '2026/27',
+         'Всеобщая история. История Нового времени. XIX — начало XX в.', $3)`,
+      [ids.course, ids.workspace, ids.user, ids.curriculumCourse, ids.curriculumPack, ids.contentPack]
+    );
+    await seed.query(
+      `INSERT INTO course_sections(
+         id, workspace_id, course_id, curriculum_section_id, position, title, planned_hours
+       ) VALUES ($1, $2, $3, $4, 1, 'Начало индустриальной эпохи', 7)`,
+      [ids.section, ids.workspace, ids.course, ids.curriculumSection]
+    );
+    await seed.query(
+      `INSERT INTO lessons(
+         id, workspace_id, course_id, section_id, curriculum_lesson_id,
+         position, title, duration_minutes, created_by
+       ) VALUES ($1, $2, $3, $4, $5, 1, 'Экономика делает решающий рывок', 45, $6)`,
+      [ids.lesson, ids.workspace, ids.course, ids.section, ids.curriculumLesson, ids.user]
+    );
+    await seed.query('COMMIT');
+  } catch (error) {
+    await seed.query('ROLLBACK');
+    throw error;
+  } finally {
+    seed.release();
+  }
 
   const clock: Clock = { now: () => new Date() };
   const idGenerator: IdGenerator = {
@@ -166,7 +184,7 @@ maybeTest('HTTP login → approve → AI worker → READY → explicit Apply per
   const proposalApplication = new PostgresLessonAiProposalApplicationRepository(pool);
   const config: ApiConfig = {
     host: '127.0.0.1',
-    port: 0,
+    port: 8080,
     environment: 'test',
     allowedOrigins: ['http://localhost:5173'],
     sessionCookieName: 'tehkarta_session',
