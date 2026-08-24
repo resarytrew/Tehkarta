@@ -45,6 +45,11 @@ export interface LessonAiProposal {
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
+  appliedCandidateId?: string;
+  appliedDecisionId?: string;
+  appliedDecisionRevision?: number;
+  appliedBy?: string;
+  appliedAt?: string;
 }
 
 export interface CourseSummary {
@@ -120,6 +125,10 @@ export interface ApiData<T> {
 export interface GovernanceResponse {
   data: Lesson;
   invalidations: LessonInvalidation[];
+}
+
+export interface ApplyAiProposalResponse extends GovernanceResponse {
+  proposal: LessonAiProposal;
 }
 
 export interface ApiErrorPayload {
