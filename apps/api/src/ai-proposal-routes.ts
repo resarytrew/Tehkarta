@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import {
   ApplicationError,
   ApplyLessonAiProposalCandidate,
+  DismissLessonAiProposal,
   RequestCoreDecisionAiProposal,
   type AiProposalAction,
   type CoreLessonDecisionKey,
@@ -96,6 +97,11 @@ export async function registerAiProposalRoutes(
     clock: dependencies.clock,
     ids: dependencies.ids
   });
+  const dismissProposal = new DismissLessonAiProposal({
+    lessons: dependencies.lessons,
+    proposals: dependencies.proposals,
+    clock: dependencies.clock
+  });
 
   app.get<{
     Params: { lessonId: string };
@@ -170,6 +176,22 @@ export async function registerAiProposalRoutes(
       proposal: result.proposal,
       invalidations: result.invalidations
     };
+  });
+
+  app.post<{
+    Params: { lessonId: string; proposalId: string };
+  }>('/api/v1/lessons/:lessonId/ai-proposals/:proposalId/dismiss', async (request) => {
+    await requireCsrf(request, dependencies.auth);
+    const principal = await requireWorkspacePrincipal(request, dependencies.auth);
+    const context = requestContextFromPrincipal(request, principal);
+    await requirePermission(dependencies.authorization, context, 'lesson:write');
+
+    const proposal = await dismissProposal.execute(context, {
+      lessonId: request.params.lessonId,
+      proposalId: request.params.proposalId
+    });
+
+    return { data: proposal };
   });
 
   app.post<{
