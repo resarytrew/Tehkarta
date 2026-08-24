@@ -12,7 +12,8 @@ import type {
   LessonInvalidation,
   LessonSummary,
   LoginResponse,
-  MeResponse
+  MeResponse,
+  MethodologyRecommendationBundle
 } from './types.js';
 
 export class ApiRequestError extends Error {
@@ -142,6 +143,60 @@ export class TehkartaApiClient {
     return response.data;
   }
 
+  async getMethodologyRecommendations(lessonId: string): Promise<MethodologyRecommendationBundle> {
+    const response = await this.request<ApiData<MethodologyRecommendationBundle>>(
+      `/api/v1/lessons/${encodeURIComponent(lessonId)}/methodology/recommendations`
+    );
+    return response.data;
+  }
+
+  addApprovedOutcome(input: {
+    lessonId: string;
+    value: string;
+    expectedLessonVersion: number;
+  }): Promise<GovernanceResponse> {
+    return this.request<GovernanceResponse>(
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/outcomes`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          value: input.value,
+          expectedLessonVersion: input.expectedLessonVersion
+        })
+      },
+      { csrf: true }
+    );
+  }
+
+  useMethodologyRecommendation(input: {
+    lessonId: string;
+    recommendationId: string;
+    formId: string;
+    techniqueIds: string[];
+    expectedLessonVersion: number;
+  }): Promise<GovernanceResponse> {
+    return this.request<GovernanceResponse>(
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/methodology/recommendations/${encodeURIComponent(input.recommendationId)}/use`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          expectedLessonVersion: input.expectedLessonVersion,
+          formId: input.formId,
+          techniqueIds: input.techniqueIds
+        })
+      },
+      { csrf: true }
+    );
+  }
+
+  rejectMethodologyRecommendation(lessonId: string, recommendationId: string): Promise<void> {
+    return this.request<{ accepted: true }>(
+      `/api/v1/lessons/${encodeURIComponent(lessonId)}/methodology/recommendations/${encodeURIComponent(recommendationId)}/reject`,
+      { method: 'POST' },
+      { csrf: true }
+    ).then(() => undefined);
+  }
+
   async listAiProposals(
     lessonId: string,
     semanticKey?: CoreDecisionKey
@@ -206,12 +261,8 @@ export class TehkartaApiClient {
           action: input.action,
           expectedLessonVersion: input.expectedLessonVersion,
           requestKey: input.requestKey,
-          ...(input.candidateCount !== undefined
-            ? { candidateCount: input.candidateCount }
-            : {}),
-          ...(input.teacherInstruction !== undefined
-            ? { teacherInstruction: input.teacherInstruction }
-            : {})
+          candidateCount: input.candidateCount,
+          teacherInstruction: input.teacherInstruction
         })
       },
       { csrf: true }
@@ -226,19 +277,15 @@ export class TehkartaApiClient {
     expectedLessonVersion: number;
     expectedFieldRevision?: number;
   }): Promise<GovernanceResponse> {
-    const body = {
-      value: input.value,
-      expectedLessonVersion: input.expectedLessonVersion,
-      ...(input.expectedFieldRevision !== undefined
-        ? { expectedFieldRevision: input.expectedFieldRevision }
-        : {})
-    };
-
     return this.request<GovernanceResponse>(
-      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/decisions/${input.semanticKey}`,
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/decisions/${encodeURIComponent(input.semanticKey)}`,
       {
         method: 'PATCH',
-        body: JSON.stringify(body)
+        body: JSON.stringify({
+          value: input.value,
+          expectedLessonVersion: input.expectedLessonVersion,
+          expectedFieldRevision: input.expectedFieldRevision
+        })
       },
       { csrf: true }
     );
@@ -251,7 +298,7 @@ export class TehkartaApiClient {
     expectedFieldRevision: number;
   }): Promise<GovernanceResponse> {
     return this.request<GovernanceResponse>(
-      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/decisions/${input.semanticKey}/approve`,
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/decisions/${encodeURIComponent(input.semanticKey)}/approve`,
       {
         method: 'POST',
         body: JSON.stringify({
@@ -264,10 +311,6 @@ export class TehkartaApiClient {
   }
 
   logout(): Promise<void> {
-    return this.request<void>(
-      '/api/v1/auth/logout',
-      { method: 'POST' },
-      { csrf: true }
-    );
+    return this.request<void>('/api/v1/auth/logout', { method: 'POST' }, { csrf: true });
   }
 }

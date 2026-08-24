@@ -6,6 +6,7 @@ import {
   type AiFieldAction
 } from './components/GovernedFieldCard.js';
 import { InvalidationPanel } from './components/InvalidationPanel.js';
+import { MethodologyConstructor } from './components/MethodologyConstructor.js';
 import type {
   AiProposalAction,
   CoreDecisionKey,
@@ -15,12 +16,16 @@ import type {
   LessonAiProposal,
   LessonInvalidation,
   LessonSummary,
-  MeResponse
+  MeResponse,
+  MethodologyRecommendation,
+  MethodologyRecommendationBundle
 } from './types.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const WORKSPACE_STORAGE_KEY = 'tehkarta.workspaceId';
 const CSRF_STORAGE_KEY = 'tehkarta.csrfToken';
+
+type ActiveDesignStep = 2 | 3;
 
 const decisionCopy: Record<CoreDecisionKey, { title: string; description: string }> = {
   goal: {
@@ -93,7 +98,7 @@ function errorMessage(error: unknown): string {
     if (error.status === 401) return 'Сессия завершена. Выполните вход ещё раз.';
     if (error.status === 403) return error.message || 'Недостаточно прав для этой рабочей области.';
     if (error.status === 409 && error.payload.code === 'DEPENDENCY_STALE') {
-      return 'AI-предложение устарело после изменений урока. Запросите новый вариант на основе актуального решения.';
+      return 'Рекомендация устарела после изменений урока. Платформа уже может пересчитать её по актуальному утверждённому контексту.';
     }
     if (error.status === 409) {
       return 'Данные урока изменились в другой вкладке. Актуальная версия уже загружается.';
@@ -131,6 +136,11 @@ export function App({ onSessionEnded }: AppProps) {
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [invalidations, setInvalidations] = useState<LessonInvalidation[]>([]);
   const [proposals, setProposals] = useState<LessonAiProposal[]>([]);
+  const [methodology, setMethodology] = useState<MethodologyRecommendationBundle | null>(null);
+  const [methodologyLoading, setMethodologyLoading] = useState(false);
+  const [methodologyBusyRecommendationId, setMethodologyBusyRecommendationId] = useState<string | null>(null);
+  const [addingOutcome, setAddingOutcome] = useState(false);
+  const [activeStep, setActiveStep] = useState<ActiveDesignStep>(2);
   const [me, setMe] = useState<MeResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [mutatingKey, setMutatingKey] = useState<CoreDecisionKey | null>(null);
@@ -162,17 +172,32 @@ export function App({ onSessionEnded }: AppProps) {
     [onSessionEnded]
   );
 
+  const refreshMethodology = useCallback(
+    async (lessonId: string) => {
+      if (!api) return;
+      setMethodologyLoading(true);
+      try {
+        setMethodology(await api.getMethodologyRecommendations(lessonId));
+      } finally {
+        setMethodologyLoading(false);
+      }
+    },
+    [api]
+  );
+
   const loadLesson = useCallback(
     async (lessonId: string) => {
       if (!api) return;
-      const [nextLesson, nextInvalidations, nextProposals] = await Promise.all([
+      const [nextLesson, nextInvalidations, nextProposals, nextMethodology] = await Promise.all([
         api.getLesson(lessonId),
         api.listInvalidations(lessonId),
-        api.listAiProposals(lessonId)
+        api.listAiProposals(lessonId),
+        api.getMethodologyRecommendations(lessonId)
       ]);
       setLesson(nextLesson);
       setInvalidations(nextInvalidations);
       setProposals(nextProposals);
+      setMethodology(nextMethodology);
       setLessons((current) =>
         current.map((summary) =>
           summary.id === nextLesson.id ? { ...summary, version: nextLesson.version } : summary
@@ -204,6 +229,7 @@ export function App({ onSessionEnded }: AppProps) {
         setLesson(null);
         setInvalidations([]);
         setProposals([]);
+        setMethodology(null);
         persistSelection(nextCourse.id, null);
       }
     },
@@ -235,6 +261,7 @@ export function App({ onSessionEnded }: AppProps) {
         setLesson(null);
         setInvalidations([]);
         setProposals([]);
+        setMethodology(null);
       }
     } catch (error) {
       if (!handleAuthenticationFailure(error)) setFatalError(errorMessage(error));
@@ -250,6 +277,7 @@ export function App({ onSessionEnded }: AppProps) {
   async function selectCourse(courseId: string): Promise<void> {
     setLoading(true);
     setFatalError(null);
+    setActiveStep(2);
     try {
       await loadCourse(courseId, null);
     } catch (error) {
@@ -262,6 +290,7 @@ export function App({ onSessionEnded }: AppProps) {
   async function selectLesson(lessonId: string): Promise<void> {
     setLoading(true);
     setFatalError(null);
+    setActiveStep(2);
     try {
       await loadLesson(lessonId);
     } catch (error) {
@@ -342,6 +371,12 @@ export function App({ onSessionEnded }: AppProps) {
 
       setLesson(workingLesson);
       setInvalidations(workingInvalidations);
+      setLessons((current) =>
+        current.map((summary) =>
+          summary.id === workingLesson.id ? { ...summary, version: workingLesson.version } : summary
+        )
+      );
+      await refreshMethodology(workingLesson.id);
       setNotice('Решение утверждено педагогом и стало авторитетным контекстом для следующих этапов.');
     } catch (error) {
       if (handleAuthenticationFailure(error)) return;
@@ -404,6 +439,7 @@ export function App({ onSessionEnded }: AppProps) {
             : summary
         )
       );
+      await refreshMethodology(response.data.id);
       setNotice(
         'AI-вариант явно применён педагогом. Новая формулировка сохранена как утверждённое решение педагога; происхождение AI осталось в истории ревизии.'
       );
@@ -413,6 +449,90 @@ export function App({ onSessionEnded }: AppProps) {
       throw new Error(errorMessage(error));
     } finally {
       setApplyingAiCandidate(null);
+    }
+  }
+
+  async function addApprovedOutcome(value: string): Promise<void> {
+    if (!api || !lesson) return;
+    setAddingOutcome(true);
+    setNotice(null);
+    try {
+      const response = await api.addApprovedOutcome({
+        lessonId: lesson.id,
+        value,
+        expectedLessonVersion: lesson.version
+      });
+      setLesson(response.data);
+      setInvalidations(response.invalidations);
+      setLessons((current) =>
+        current.map((summary) =>
+          summary.id === response.data.id ? { ...summary, version: response.data.version } : summary
+        )
+      );
+      await refreshMethodology(response.data.id);
+      setNotice('Результат добавлен и сразу утверждён педагогом. Методический конструктор пересчитан по новой версии урока.');
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCurrentLesson();
+      throw new Error(errorMessage(error));
+    } finally {
+      setAddingOutcome(false);
+    }
+  }
+
+  async function useMethodologyRecommendation(
+    recommendation: MethodologyRecommendation,
+    choice: { formId: string; techniqueIds: string[] }
+  ): Promise<void> {
+    if (!api || !lesson) return;
+    setMethodologyBusyRecommendationId(recommendation.id);
+    setNotice(null);
+    try {
+      const response = await api.useMethodologyRecommendation({
+        lessonId: lesson.id,
+        recommendationId: recommendation.id,
+        formId: choice.formId,
+        techniqueIds: choice.techniqueIds,
+        expectedLessonVersion: lesson.version
+      });
+      setLesson(response.data);
+      setInvalidations(response.invalidations);
+      setLessons((current) =>
+        current.map((summary) =>
+          summary.id === response.data.id ? { ...summary, version: response.data.version } : summary
+        )
+      );
+      await refreshMethodology(response.data.id);
+      setNotice(
+        `Метод «${recommendation.method.name}» применён как явное решение педагога. Метод, приёмы и форма сохранены со статусом APPROVED.`
+      );
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCurrentLesson();
+      setNotice(errorMessage(error));
+    } finally {
+      setMethodologyBusyRecommendationId(null);
+    }
+  }
+
+  async function rejectMethodologyRecommendation(
+    recommendation: MethodologyRecommendation
+  ): Promise<void> {
+    if (!api || !lesson) return;
+    setMethodologyBusyRecommendationId(recommendation.id);
+    setNotice(null);
+    try {
+      await api.rejectMethodologyRecommendation(lesson.id, recommendation.id);
+      await refreshMethodology(lesson.id);
+      setNotice(
+        `Рекомендация «${recommendation.method.name}» отклонена педагогом и скрыта для текущей версии Methodology Pack.`
+      );
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCurrentLesson();
+      setNotice(errorMessage(error));
+    } finally {
+      setMethodologyBusyRecommendationId(null);
     }
   }
 
@@ -530,62 +650,88 @@ export function App({ onSessionEnded }: AppProps) {
                   ['06', 'Материалы'],
                   ['07', 'Экспертиза'],
                   ['08', 'Карта урока']
-                ].map(([number, label], index) => (
-                  <button
-                    type="button"
-                    key={number}
-                    className={`design-step ${index <= 1 ? 'is-available' : ''} ${index === 1 ? 'is-current' : ''}`}
-                    onClick={() => {
-                      if (index > 1) {
-                        setNotice(`Раздел «${label}» будет подключён после фиксации базовых педагогических решений.`);
-                      }
-                    }}
-                  >
-                    <span>{number}</span>
-                    {label}
-                  </button>
-                ))}
+                ].map(([number, label], index) => {
+                  const stepNumber = index + 1;
+                  const available = stepNumber === 2 || stepNumber === 3;
+                  const current = activeStep === stepNumber;
+                  return (
+                    <button
+                      type="button"
+                      key={number}
+                      className={`design-step ${available ? 'is-available' : ''} ${current ? 'is-current' : ''}`}
+                      onClick={() => {
+                        if (stepNumber === 2 || stepNumber === 3) {
+                          setActiveStep(stepNumber);
+                          return;
+                        }
+                        setNotice(
+                          stepNumber < 2
+                            ? 'Базовый замысел уже представлен утверждаемыми решениями урока. Отдельный экран будет подключён позже.'
+                            : `Раздел «${label}» будет подключён после завершения текущего педагогического слоя.`
+                        );
+                      }}
+                    >
+                      <span>{number}</span>
+                      {label}
+                    </button>
+                  );
+                })}
               </nav>
 
-              <div className="workspace-grid">
+              <div className={`workspace-grid ${activeStep === 3 ? 'workspace-grid--methodology' : ''}`}>
                 <section className="workspace-main-column">
-                  <div className="section-intro">
-                    <span className="eyebrow">Шаг 2 · педагогические решения</span>
-                    <h2>Цель и смысловая рамка урока</h2>
-                    <p>
-                      Здесь AI может предлагать формулировки, но дальше передаются только решения,
-                      которые педагог явно применил. Изменение утверждённого поля не переписывает
-                      зависимые блоки молча — они помечаются как требующие пересмотра.
-                    </p>
-                  </div>
+                  {activeStep === 2 ? (
+                    <>
+                      <div className="section-intro">
+                        <span className="eyebrow">Шаг 2 · педагогические решения</span>
+                        <h2>Цель и смысловая рамка урока</h2>
+                        <p>
+                          Здесь AI может предлагать формулировки, но дальше передаются только решения,
+                          которые педагог явно применил. Изменение утверждённого поля не переписывает
+                          зависимые блоки молча — они помечаются как требующие пересмотра.
+                        </p>
+                      </div>
 
-                  {(Object.keys(decisionCopy) as CoreDecisionKey[]).map((semanticKey) => {
-                    const latestProposal = proposals.find(
-                      (proposal) => proposal.semanticKey === semanticKey
-                    );
-                    const applyingCandidateId =
-                      latestProposal && applyingAiCandidate?.proposalId === latestProposal.id
-                        ? applyingAiCandidate.candidateId
-                        : null;
+                      {(Object.keys(decisionCopy) as CoreDecisionKey[]).map((semanticKey) => {
+                        const latestProposal = proposals.find(
+                          (proposal) => proposal.semanticKey === semanticKey
+                        );
+                        const applyingCandidateId =
+                          latestProposal && applyingAiCandidate?.proposalId === latestProposal.id
+                            ? applyingAiCandidate.candidateId
+                            : null;
 
-                    return (
-                      <GovernedFieldCard
-                        key={semanticKey}
-                        semanticKey={semanticKey}
-                        title={decisionCopy[semanticKey].title}
-                        description={decisionCopy[semanticKey].description}
-                        field={lesson[semanticKey]}
-                        busy={mutatingKey === semanticKey}
-                        aiBusy={aiRequestKey === semanticKey}
-                        latestProposal={latestProposal}
-                        applyingAiCandidateId={applyingCandidateId}
-                        onSaveDraft={(value) => saveDraft(semanticKey, value)}
-                        onApply={(value) => applyDecision(semanticKey, value)}
-                        onAiAction={aiAction}
-                        onApplyAiCandidate={applyAiCandidate}
-                      />
-                    );
-                  })}
+                        return (
+                          <GovernedFieldCard
+                            key={semanticKey}
+                            semanticKey={semanticKey}
+                            title={decisionCopy[semanticKey].title}
+                            description={decisionCopy[semanticKey].description}
+                            field={lesson[semanticKey]}
+                            busy={mutatingKey === semanticKey}
+                            aiBusy={aiRequestKey === semanticKey}
+                            latestProposal={latestProposal}
+                            applyingAiCandidateId={applyingCandidateId}
+                            onSaveDraft={(value) => saveDraft(semanticKey, value)}
+                            onApply={(value) => applyDecision(semanticKey, value)}
+                            onAiAction={aiAction}
+                            onApplyAiCandidate={applyAiCandidate}
+                          />
+                        );
+                      })}
+                    </>
+                  ) : (
+                    <MethodologyConstructor
+                      lesson={lesson}
+                      bundle={methodology}
+                      loading={methodologyLoading}
+                      busyRecommendationId={methodologyBusyRecommendationId}
+                      addingOutcome={addingOutcome}
+                      onAddOutcome={addApprovedOutcome}
+                      onUseRecommendation={useMethodologyRecommendation}
+                      onRejectRecommendation={rejectMethodologyRecommendation}
+                    />
+                  )}
                 </section>
 
                 <aside className="workspace-side-column">
@@ -593,18 +739,24 @@ export function App({ onSessionEnded }: AppProps) {
                     invalidations={invalidations}
                     onRecalculate={() =>
                       setNotice(
-                        'Запрос на пересчёт будет отправляться в асинхронный AI job. До подтверждения педагога текущие зависимые блоки останутся помеченными как устаревшие.'
+                        'Пересчёт зависимых блоков будет выполняться отдельным управляемым действием. Текущие блоки остаются помеченными как устаревшие до решения педагога.'
                       )
                     }
                   />
 
                   <div className="context-panel">
-                    <span className="eyebrow">Контекст AI</span>
+                    <span className="eyebrow">
+                      {activeStep === 2 ? 'Контекст AI' : 'Контекст методики'}
+                    </span>
                     <h3>Что уже зафиксировано</h3>
                     <div className="context-list">
                       <div>
                         <span>Педагогическая технология</span>
-                        <strong>{lesson.pedagogicalProfile.technology?.value ?? 'Не выбрана'}</strong>
+                        <strong>
+                          {activeStep === 3
+                            ? methodology?.pack.technology.name ?? 'Исследовательская технология'
+                            : lesson.pedagogicalProfile.technology?.value ?? 'Не выбрана'}
+                        </strong>
                       </div>
                       <div>
                         <span>Режим содержания</span>
@@ -615,20 +767,42 @@ export function App({ onSessionEnded }: AppProps) {
                         <strong>{course?.contentPackId ?? 'Не привязан'}</strong>
                       </div>
                       <div>
-                        <span>Утверждённых ключевых решений</span>
+                        <span>Утверждённых результатов</span>
                         <strong>
-                          {[lesson.goal, lesson.problemQuestion, lesson.bigIdea].filter(
-                            (field) => field?.meta.status === 'APPROVED'
-                          ).length}{' '}
-                          из 3
+                          {lesson.outcomes.filter((field) => field.meta.status === 'APPROVED').length}
                         </strong>
                       </div>
                       <div>
-                        <span>AI-запросов по уроку</span>
-                        <strong>{proposals.length}</strong>
+                        <span>Утверждённых методов</span>
+                        <strong>
+                          {lesson.selectedMethods.filter((field) => field.meta.status === 'APPROVED').length}
+                        </strong>
                       </div>
+                      {activeStep === 2 ? (
+                        <div>
+                          <span>AI-запросов по уроку</span>
+                          <strong>{proposals.length}</strong>
+                        </div>
+                      ) : (
+                        <div>
+                          <span>Активных рекомендаций</span>
+                          <strong>{methodology?.recommendations.length ?? 0}</strong>
+                        </div>
+                      )}
                     </div>
                   </div>
+
+                  {activeStep === 3 && methodology?.pack.technology.antiPatterns.length ? (
+                    <div className="context-panel methodology-warning-panel">
+                      <span className="eyebrow">Методическая защита</span>
+                      <h3>Чего не должна делать технология</h3>
+                      <ul>
+                        {methodology.pack.technology.antiPatterns.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : null}
                 </aside>
               </div>
             </>
