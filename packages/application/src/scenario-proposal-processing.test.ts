@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { ApplicationError } from './index.js';
-import {
-  validateScenarioCandidates,
-  type ScenarioCandidate
-} from './scenario-proposal-processing.js';
+import { validateScenarioCandidates } from './scenario-proposal-processing.js';
 import type { ApprovedScenarioContext } from './scenario-context.js';
-import type { LessonScenarioProposal } from './scenario-proposals.js';
+import type { LessonScenarioProposal, ScenarioCandidate } from './scenario-proposals.js';
 
 const approvedContext: ApprovedScenarioContext = {
   course: {
