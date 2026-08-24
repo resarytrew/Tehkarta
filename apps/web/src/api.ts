@@ -3,6 +3,7 @@ import type {
   ApiData,
   ApiErrorPayload,
   ApplyAiProposalResponse,
+  ContentSelectionDecision,
   CoreDecisionKey,
   Course,
   CourseSummary,
@@ -14,7 +15,8 @@ import type {
   LessonSummary,
   LoginResponse,
   MeResponse,
-  MethodologyRecommendationBundle
+  MethodologyRecommendationBundle,
+  SetContentSelectionResponse
 } from './types.js';
 
 export class ApiRequestError extends Error {
@@ -142,6 +144,25 @@ export class TehkartaApiClient {
       `/api/v1/lessons/${encodeURIComponent(lessonId)}/content-context`
     );
     return response.data;
+  }
+
+  setUmkContentDecision(input: {
+    lessonId: string;
+    mappingId: string;
+    decision: ContentSelectionDecision;
+    expectedLessonVersion: number;
+  }): Promise<SetContentSelectionResponse> {
+    return this.request<SetContentSelectionResponse>(
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/content-selection/umk/${encodeURIComponent(input.mappingId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          decision: input.decision,
+          expectedLessonVersion: input.expectedLessonVersion
+        })
+      },
+      { csrf: true }
+    );
   }
 
   async listInvalidations(lessonId: string): Promise<LessonInvalidation[]> {

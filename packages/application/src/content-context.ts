@@ -15,6 +15,7 @@ export type ContentResourceType =
   | 'ASSESSMENT'
   | 'DIGITAL'
   | 'OTHER';
+export type ContentSelectionState = 'UNDECIDED' | 'INCLUDED' | 'EXCLUDED';
 
 export interface ContentContextSource {
   sourceId: string;
@@ -52,6 +53,12 @@ export interface LessonUmkEvidenceItem {
   text?: string;
   textRestricted: boolean;
   source: ContentContextSource;
+  selection: {
+    state: ContentSelectionState;
+    revision?: number;
+    actorUserId?: string;
+    updatedAt?: string;
+  };
 }
 
 export interface LessonContentContext {
@@ -70,6 +77,12 @@ export interface LessonContentContext {
   };
   curriculumRequirements: LessonCurriculumRequirement[];
   umkEvidence: LessonUmkEvidenceItem[];
+  approvedContentSet: {
+    mandatoryRequirementIds: string[];
+    includedUmkMappingIds: string[];
+    excludedUmkMappingIds: string[];
+    undecidedUmkMappingIds: string[];
+  };
   aiSupplemental: [];
 }
 
