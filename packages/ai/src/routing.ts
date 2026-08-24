@@ -23,7 +23,7 @@ export class ConfiguredAIRouter implements AIRouter {
 export class RoutedProviderRegistry implements AIProviderResolver {
   private readonly providers: Map<string, AIProvider>;
 
-  constructor(entries: readonly Array<{ provider: string; model: string; client: AIProvider }>) {
+  constructor(entries: ReadonlyArray<{ provider: string; model: string; client: AIProvider }>) {
     this.providers = new Map(
       entries.map((entry) => [this.key(entry.provider, entry.model), entry.client])
     );
