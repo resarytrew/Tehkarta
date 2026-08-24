@@ -13,9 +13,11 @@ interface GovernedFieldCardProps {
   busy: boolean;
   aiBusy: boolean;
   latestProposal: LessonAiProposal | undefined;
+  applyingAiCandidateId?: string | null;
   onSaveDraft(value: string): Promise<void>;
   onApply(value: string): Promise<void>;
   onAiAction(action: AiFieldAction, semanticKey: CoreDecisionKey): Promise<void>;
+  onApplyAiCandidate(proposalId: string, candidateId: string): Promise<void>;
 }
 
 function statusPresentation(field?: GovernedField<string>): {
@@ -62,9 +64,11 @@ export function GovernedFieldCard({
   busy,
   aiBusy,
   latestProposal,
+  applyingAiCandidateId = null,
   onSaveDraft,
   onApply,
-  onAiAction
+  onAiAction,
+  onApplyAiCandidate
 }: GovernedFieldCardProps) {
   const [editing, setEditing] = useState(!field);
   const [draft, setDraft] = useState(field?.value ?? '');
@@ -198,7 +202,15 @@ export function GovernedFieldCard({
         </button>
       </div>
 
-      {latestProposal ? <AiProposalPanel proposal={latestProposal} /> : null}
+      {latestProposal ? (
+        <AiProposalPanel
+          proposal={latestProposal}
+          applyingCandidateId={applyingAiCandidateId}
+          onApplyCandidate={(candidateId) =>
+            onApplyAiCandidate(latestProposal.id, candidateId)
+          }
+        />
+      ) : null}
     </article>
   );
 }
