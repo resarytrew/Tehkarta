@@ -1,105 +1,106 @@
 # Tehkarta — план разработки на ближайшие 24 часа
 
-**Окно работы:** 24 августа 2026 г. (примерно с 00:00 до 24:00 по локальному времени пользователя)  
+**Окно работы:** 24 августа 2026 г.  
 **Репозиторий:** `resarytrew/Tehkarta`  
 **Режим:** последовательная senior-level разработка по команде пользователя `продолжай`  
-**Цель суток:** превратить текущий foundation в первый безопасный end-to-end AI-assisted vertical slice: педагог запрашивает AI-вариант → worker генерирует предложение → педагог видит его → педагог явно применяет → authoritative lesson state меняется только как решение педагога.
+**Цель суток:** довести первый безопасный end-to-end AI-assisted vertical slice: педагог запрашивает AI-вариант → worker генерирует предложение → педагог видит его → педагог явно применяет → authoritative lesson state меняется только как решение педагога.
 
-> Этот файл — рабочая очередь на сутки. После каждого завершённого блока агент обязан обновить статусы ниже, зафиксировать ссылку/номер PR или commit, проверить CI и только затем переходить к следующему блоку.
+> После каждого законченного блока агент обязан проверить фактическое состояние `main`, CI и активных PR, затем обновить этот файл.
 
 ---
 
-## 0. Протокол работы по команде `продолжай`
+## 0. Протокол по команде `продолжай`
 
-Когда пользователь пишет только **`продолжай`**, агент обязан:
-
-1. Прочитать `RULS.md`.
-2. Прочитать `TECHNICAL_DOCUMENTATION.md`.
-3. Прочитать этот файл и определить **первый незавершённый блок с наивысшим приоритетом**.
-4. Проверить фактическое состояние `main`, активных PR и CI — не полагаться на память разговора.
-5. Выполнить один законченный инженерный блок целиком: код → тесты → CI → исправления → PR/merge, если безопасно.
-6. Не спрашивать пользователя о выборе реализации, если решение можно принять безопасно на уровне senior-инженера.
-7. Задать вопрос только при настоящем внешнем блокере: нужен секрет, платёжный/облачный доступ, юридическое решение, лицензия или необратимое продуктовое решение.
-8. После работы обновить этот файл: статус, результат, следующий шаг.
-9. В ответе пользователю кратко сообщить: что сделано, что проверено, что будет следующим по `продолжай`.
+1. Прочитать `RULS.md`, `TECHNICAL_DOCUMENTATION.md` и этот файл.
+2. Проверить реальное состояние `main`, PR и CI — не полагаться только на память разговора.
+3. Взять первый незавершённый блок с наивысшим приоритетом.
+4. Выполнить законченный инженерный slice: код → тесты → CI → исправления → merge, если безопасно.
+5. Не спрашивать пользователя о реализации, если решение можно принять безопасно на уровне senior-инженера.
+6. Задать вопрос только при внешнем блокере: secret/cloud access, лицензия, стоимость или необратимое продуктовое решение.
+7. Не сливать PR при красном CI.
+8. Обновить этот план и кратко сообщить результат.
 
 ### Жёсткие ограничения
 
-- Не сливать PR при красном CI.
-- Не подменять `APPROVED` teacher state AI-результатом.
-- Не создавать fake AI completion ради красивого UI.
-- Не коммитить секреты.
-- Не обходить workspace/authorization/CSRF ограничения.
-- Не удалять проверки, чтобы «починить» CI.
-- Не строить новую функцию напрямую на vendor SDK, если она должна проходить через port/adapter.
-- Не усложнять архитектуру микросервисами без необходимости: modular monolith first.
+- `APPROVED` teacher state не меняется AI автоматически.
+- AI proposal хранится отдельно от `lesson_decisions`.
+- Никаких fake AI completion ради UI.
+- Никаких секретов в Git/frontend/logs.
+- Workspace/authorization/CSRF не обходить.
+- Не удалять проверки ради зелёного CI.
+- Vendor SDK не должен проникать в domain/application.
+- Modular monolith first.
 
 ---
 
-# P0 — ЗАВЕРШИТЬ AI WORKER CORE
+# P0 — AI WORKER CORE
 
 ## [x] 1. Довести PR #12 до зелёного состояния
 
-**Результат:** worker core доведён до зелёного CI на commit `96e7b78776cc598f518374ee284c8d0072b0cefe` и влит в `main` merge-коммитом `f9f3196d3db644433f7741217bbca65795f3ce8c`.
+**Результат:** завершено и влито в `main`.
 
-Выполнено:
-
-- исправлен TypeScript contract в `packages/ai/src/routing.ts` (`ReadonlyArray` вместо недопустимого `readonly Array<...>`);
-- `typecheck`, `build`, `test`, `db:smoke` проходят;
-- Docker production API image собирается и проходит non-root runtime assertion;
-- Terraform `fmt/init/validate` проходит;
-- smoke проверяет `QUEUED → RUNNING → READY`, stale handling и сохранение approved teacher decision.
-
-**PR:** #12 `Build safe AI proposal worker core` — merged.
+- PR #12 `Build safe AI proposal worker core`;
+- green head: `96e7b78776cc598f518374ee284c8d0072b0cefe`;
+- merge: `f9f3196d3db644433f7741217bbca65795f3ce8c`;
+- проходят typecheck/build/test/db:smoke/Docker/Terraform;
+- worker lifecycle: `QUEUED → RUNNING → READY / STALE / FAILED`;
+- stale work не вызывает модель;
+- approved teacher decision не изменяется.
 
 ---
 
 # P1 — ПОЛНЫЙ TEACHER-AUTHORITY ЦИКЛ AI ПРЕДЛОЖЕНИЯ
 
-## [ ] 2. Реализовать `READY proposal → просмотр → выбор кандидата`
+## [x] 2. `READY proposal → просмотр → выбор кандидата`
 
-Создать отдельный product slice:
+**Результат:** завершено и влито в `main`.
 
-- API получения proposal details/status;
-- UI карточка кандидатов под конкретным governed field;
-- `rationale` и `distinction` показываются отдельно от текста поля;
-- `QUEUED/RUNNING/READY/FAILED/STALE` имеют понятные состояния;
-- polling с backoff или другой лёгкий механизм обновления статуса;
-- никаких автоматических замен lesson field.
+- PR #13 `Show READY AI proposal candidates safely`;
+- green head: `233802ecca5c24802bd0cabf7f30bbb843a82a29`;
+- squash merge: `fdbb846109897683d4dd28aeafb48fbd39f3e1e1`;
+- добавлен tenant-scoped detail endpoint `GET /api/v1/lessons/:lessonId/ai-proposals/:proposalId`;
+- repository contract теперь явно предоставляет `getById`;
+- UI показывает реальные candidates, `rationale` и `distinction`;
+- `QUEUED/RUNNING` автоматически polling-ятся с bounded backoff;
+- READY/STALE/FAILED/CANCELLED имеют отдельное представление;
+- педагог может выбрать candidate локально, но выбор **не меняет lesson state**;
+- provider/model/prompt/base revision показываются как provenance metadata, когда доступны;
+- CI полностью зелёный: verify, db:smoke, Docker non-root, Terraform.
 
-**DoD:** педагог видит реальные READY-кандидаты и понимает их происхождение/статус.
+## [ ] 3. Явное применение AI-кандидата педагогом
 
-## [ ] 3. Реализовать явное применение AI-кандидата педагогом
-
-Отдельная application-команда, например `ApplyLessonAiProposalCandidate`.
+Создать application-команду `ApplyLessonAiProposalCandidate`.
 
 Требования:
 
-- применение возможно только для `READY` proposal;
-- проверяется актуальная lesson version и base revision;
+- только `READY` proposal;
+- candidate обязан принадлежать proposal;
+- proposal обязан принадлежать текущему lesson/workspace;
+- проверить `requestedLessonVersion`, `baseDecisionId`, `baseRevision` против актуального state;
 - stale proposal применить нельзя;
-- provenance сохраняет `proposalId`, provider/model/prompt version;
-- authoritative field после действия имеет семантику **teacher decision**, а не «AI сам применил»;
-- downstream invalidations создаются так же, как при обычной ручной правке;
-- после применения proposal становится `APPLIED`;
-- повторное применение идемпотентно либо явно конфликтует по устойчивому contract.
+- применение должно быть **teacher action** с actor user ID;
+- AI не пишет напрямую в authoritative decision;
+- provenance сохраняет `proposalId`, `candidateId`, provider/model/prompt/routing policy;
+- downstream dependency invalidations создаются так же, как при ручной правке;
+- итоговое поле получает teacher-authoritative semantics;
+- proposal переходит `READY → APPLIED` только атомарно с успешным применением;
+- повтор должен быть идемпотентным либо давать устойчивый conflict contract;
+- критический regression fixture: вопрос «Почему в XIX в. промышленная революция достигла огромных успехов?» не может быть заменён без явного Apply.
 
-**Критический тест:** старый баг с проблемным вопросом не может повториться.
+**DoD:** candidate можно применить одной явной кнопкой, после reload сохраняется новое teacher-controlled state; никакого silent overwrite.
 
-## [ ] 4. Добавить `Отклонить` и `Запросить ещё варианты`
+## [ ] 4. `Отклонить` и `Запросить ещё варианты`
 
-- `DISMISSED` как отдельное terminal state;
-- отклонение не меняет lesson;
-- новый запрос создаёт новый proposal, а не мутирует старый;
-- UI сохраняет историю предложений по полю.
+- `DISMISSED` как terminal state;
+- dismiss не меняет lesson;
+- новый запрос создаёт новый proposal;
+- история предложений сохраняется по полю.
 
 ---
 
 # P2 — PRODUCTION AI EXECUTION
 
 ## [ ] 5. Создать настоящий `apps/worker`
-
-Отдельный runtime-процесс в монорепо:
 
 ```text
 apps/worker
@@ -111,62 +112,31 @@ apps/worker
   → persist result
 ```
 
-Требования:
-
-- graceful shutdown;
-- worker identity;
-- configurable poll interval / one-shot mode;
-- lease recovery;
-- retries with bounded exponential backoff;
-- structured logging без чувствительных prompt payloads;
-- health/readiness contract для контейнерного запуска.
+Требования: graceful shutdown, worker identity, poll/one-shot mode, lease recovery, bounded retries, structured logging без чувствительных payloads, health/readiness.
 
 ## [ ] 6. Production-ready AI provider adapters
 
-Добавить минимум два адаптера за `AIProvider`:
+Минимум:
 
-- Yandex AI Studio / OpenAI-compatible path;
-- OpenRouter fallback/benchmark path.
+- Yandex AI Studio / OpenAI-compatible adapter;
+- OpenRouter benchmark/fallback adapter.
 
-Требования:
-
-- secrets только через environment/Lockbox;
-- timeout + AbortSignal;
-- retry только для retryable failures;
-- structured JSON output validation;
-- provider/model metadata сохраняются;
-- no silent fallback на модель с другой педагогической политикой;
-- model routing policy versioned.
+Требования: secrets только runtime/Lockbox, timeout + AbortSignal, retry только retryable errors, JSON schema validation, metadata persistence, versioned routing policy, никакого silent fallback с другой педагогической политикой.
 
 ## [ ] 7. AI traceability и eval fixture
 
-Зафиксировать для каждого AI вызова:
+Хранить: task type, proposal ID, provider/model, prompt/routing version, latency, token/cost metadata, status, error category.
 
-- task type;
-- proposal id;
-- provider/model;
-- prompt version;
-- routing policy version;
-- latency;
-- token/cost metadata, если провайдер отдаёт;
-- result status;
-- error category.
+Benchmark fixture:
 
-Добавить benchmark fixture для урока:
-
-**«Экономика делает решающий рывок»**
-
-и обязательного teacher question:
-
-**«Почему в XIX в. промышленная революция достигла огромных успехов?»**
+- урок «Экономика делает решающий рывок»;
+- approved question «Почему в XIX в. промышленная революция достигла огромных успехов?».
 
 ---
 
 # P3 — END-TO-END PRODUCT SLICE
 
-## [ ] 8. Собрать локальный end-to-end сценарий
-
-Одной командой разработчика:
+## [ ] 8. Локальный E2E
 
 ```text
 docker compose up postgres
@@ -176,148 +146,82 @@ pnpm dev
 pnpm worker:dev
 ```
 
-Сценарий проверки:
+Сценарий: login → История 9 → «Начало индустриальной эпохи» → «Экономика делает решающий рывок» → «Улучшить» → READY proposal → сравнить → Apply → teacher-authoritative state + invalidations → reload → данные сохранены.
 
-1. login;
-2. открыть курс История 9;
-3. открыть раздел «Начало индустриальной эпохи»;
-4. открыть урок «Экономика делает решающий рывок»;
-5. увидеть approved problem question;
-6. нажать «Улучшить»;
-7. дождаться READY proposal;
-8. сравнить исходную и AI-формулировку;
-9. применить вариант;
-10. увидеть новое teacher-approved authoritative state и invalidations;
-11. обновить страницу — состояние не теряется.
-
-## [ ] 9. Добавить API/browser integration tests критического потока
+## [ ] 9. Integration tests критического потока
 
 Минимум:
 
-- login → lesson → queue proposal → worker → READY → apply;
+- login → proposal → worker → READY → apply;
 - stale conflict;
 - tenant isolation;
 - CSRF rejection;
 - approved-state preservation;
-- duplicate/idempotency behavior;
-- refresh/reload persistence.
-
-Не подменять integration test только unit-тестами.
+- idempotency;
+- persistence after reload.
 
 ---
 
 # P4 — YANDEX CLOUD RUNTIME FOUNDATION
 
-## [ ] 10. Завершить Terraform runtime-каркас
-
-Довести `infra/terraform` до связной dev-среды:
+## [ ] 10. Завершить Terraform dev-runtime
 
 - VPC/subnets;
 - Managed PostgreSQL;
-- private Object Storage buckets;
+- private Object Storage;
 - Container Registry;
 - API Serverless Container;
 - Worker Serverless Container;
-- service accounts и least privilege IAM;
-- Lockbox bindings;
+- separate service accounts + least privilege IAM;
+- Lockbox;
 - API Gateway;
-- web static hosting/CDN foundation;
-- outputs для deploy pipeline.
+- web static hosting/CDN;
+- deploy outputs.
 
-Не применять реальные облачные ресурсы без доступных credentials и без явной уверенности в стоимости/безопасности. Если credentials отсутствуют — довести IaC до `fmt/validate` и документировать apply steps.
+Без credentials не делать реальный `apply`: довести IaC до `fmt/validate` и документировать apply/runbook.
 
-## [ ] 11. Развести runtime identities
+## [ ] 11. Runtime identities
 
-Минимум:
+Минимум: `tehkarta-api-runtime`, `tehkarta-worker-runtime`, `tehkarta-deploy`; позже `tehkarta-content-importer`.
 
-- `tehkarta-api-runtime`;
-- `tehkarta-worker-runtime`;
-- `tehkarta-deploy`;
-- позже `tehkarta-content-importer`.
+## [ ] 12. CI/CD skeleton
 
-Принцип least privilege обязателен.
-
-## [ ] 12. Подготовить CI/CD skeleton
-
-Без секретов в Git:
-
-- build API image;
-- build worker image;
-- immutable image tags by commit SHA;
+- API + worker images;
+- immutable SHA tags;
 - Terraform validation;
-- deploy job только для protected environment;
-- migration step отделён от application start;
-- rollback/runbook заметка.
+- protected deploy environment;
+- migrations отдельным шагом;
+- rollback/runbook.
 
 ---
 
 # P5 — СЛЕДУЮЩИЙ ПЕДАГОГИЧЕСКИЙ СЛОЙ
 
-Если P0–P4 завершены раньше конца рабочего окна, перейти к следующему product foundation.
+После P0–P4.
 
 ## [ ] 13. Methodical Constructor domain foundation
 
-Не UI-first. Сначала структура:
+`PedagogicalTechnology → canonical phases → Methods → Techniques → compatible Forms → time/prep/constraints/anti-patterns`.
 
-```text
-PedagogicalTechnology
-  → canonical phases
-  → Methods
-      → Techniques
-      → compatible Forms
-      → time cost
-      → prep cost
-      → constraints
-      → anti-patterns
-```
-
-Добавить versioned `MethodologyPack` и source/provenance.
+Versioned `MethodologyPack` + provenance.
 
 ## [ ] 14. Первый Methodology Pack: исследовательская технология
 
-Структурировать:
-
-- проблема;
-- исследовательский вопрос;
-- гипотезы;
-- план исследования;
-- анализ источников/данных;
-- интерпретация;
-- вывод;
-- рефлексия;
-- методы/приёмы/формы;
-- возрастные и временные ограничения;
-- anti-patterns.
+Проблема → вопрос → гипотезы → план → анализ источников/данных → интерпретация → вывод → рефлексия + methods/techniques/forms + возрастные/временные ограничения + anti-patterns.
 
 ## [ ] 15. UI первого Методического конструктора
 
-Для текущего урока показать AI recommendations с объяснением:
-
-- почему метод рекомендован;
-- какой approved outcome поддерживает;
-- какая technology phase;
-- сколько времени;
-- рекомендуемые приёмы;
-- форма работы выбирается отдельно;
-- `[Использовать] [Не использовать] [Подробнее]`.
-
-Никакой автоматической установки group work.
+AI recommendation должен объяснять: почему метод, какой approved outcome, какая technology phase, время, приёмы. Форма работы выбирается отдельно. Действия: `[Использовать] [Не использовать] [Подробнее]`.
 
 ---
 
 # P6 — ДОКУМЕНТАЦИЯ И HOUSEKEEPING
 
-## [ ] 16. В конце суток провести документационный checkpoint
+## [ ] 16. Финальный checkpoint суток
 
-Обновить:
+Обновить `TECHNICAL_DOCUMENTATION.md`, этот план, ADR при новых архитектурных решениях и README только при реальном изменении dev/user workflow.
 
-- `TECHNICAL_DOCUMENTATION.md` — только фактически реализованные компоненты;
-- `RULS.md` — только если появился новый устойчивый архитектурный invariant;
-- этот файл — отметить завершённые блоки и перенести незавершённые в следующий план;
-- ADR для новых значимых решений;
-- README — только если пользовательский/dev workflow реально изменился.
-
-Провести финальную проверку:
+Финальная проверка:
 
 ```text
 pnpm typecheck
@@ -327,20 +231,18 @@ pnpm db:smoke
 terraform fmt -check
 terraform validate
 Docker API build
-Docker worker build (если уже реализован)
+Docker worker build (если реализован)
 ```
 
 ---
 
 # Что НЕ делать в эти сутки
 
-Чтобы не распылять разработку:
-
-- не строить весь RAG по полным учебникам до завершения AI proposal E2E;
+- не строить полный RAG до AI proposal E2E;
 - не начинать billing;
 - не добавлять учеников/родителей;
 - не проектировать мобильное приложение;
 - не строить микросервисы;
-- не делать массовый импорт всех предметов;
+- не импортировать массово все предметы;
 - не заниматься декоративным редизайном раньше рабочего vertical slice;
 - не менять архитектурные инварианты ради краткосрочного удобства.
