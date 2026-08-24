@@ -5,6 +5,8 @@ import './AiProposalPanel.css';
 
 interface AiProposalPanelProps {
   proposal: LessonAiProposal;
+  applyingCandidateId?: string | null;
+  onApplyCandidate(candidateId: string): Promise<void>;
 }
 
 const TERMINAL_STATUSES = new Set<LessonAiProposal['status']>([
@@ -38,10 +40,15 @@ function errorText(proposal: LessonAiProposal): string | null {
   return typeof message === 'string' && message.trim() ? message : null;
 }
 
-export function AiProposalPanel({ proposal }: AiProposalPanelProps) {
+export function AiProposalPanel({
+  proposal,
+  applyingCandidateId = null,
+  onApplyCandidate
+}: AiProposalPanelProps) {
   const [currentProposal, setCurrentProposal] = useState(proposal);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [pollingError, setPollingError] = useState<string | null>(null);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   const api = useMemo(
     () =>
@@ -56,6 +63,7 @@ export function AiProposalPanel({ proposal }: AiProposalPanelProps) {
     setCurrentProposal(proposal);
     setSelectedCandidateId(null);
     setPollingError(null);
+    setApplyError(null);
   }, [proposal.id]);
 
   useEffect(() => {
@@ -63,6 +71,13 @@ export function AiProposalPanel({ proposal }: AiProposalPanelProps) {
       setCurrentProposal(proposal);
     }
   }, [proposal, currentProposal.updatedAt]);
+
+  useEffect(() => {
+    if (currentProposal.status !== 'READY') {
+      setSelectedCandidateId(null);
+      setApplyError(null);
+    }
+  }, [currentProposal.status]);
 
   useEffect(() => {
     if (TERMINAL_STATUSES.has(currentProposal.status)) return;
@@ -107,9 +122,31 @@ export function AiProposalPanel({ proposal }: AiProposalPanelProps) {
       currentProposal.candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null,
     [currentProposal.candidates, selectedCandidateId]
   );
+  const appliedCandidate = useMemo(
+    () =>
+      currentProposal.candidates.find(
+        (candidate) => candidate.id === currentProposal.appliedCandidateId
+      ) ?? null,
+    [currentProposal.appliedCandidateId, currentProposal.candidates]
+  );
 
   const isPending = currentProposal.status === 'QUEUED' || currentProposal.status === 'RUNNING';
   const failure = errorText(currentProposal);
+  const applying = Boolean(applyingCandidateId);
+
+  async function applySelected(): Promise<void> {
+    if (!selectedCandidate || currentProposal.status !== 'READY' || applying) return;
+    setApplyError(null);
+    try {
+      await onApplyCandidate(selectedCandidate.id);
+    } catch (error) {
+      setApplyError(
+        error instanceof Error
+          ? error.message
+          : 'Не удалось применить выбранный AI-вариант.'
+      );
+    }
+  }
 
   return (
     <section
@@ -148,12 +185,15 @@ export function AiProposalPanel({ proposal }: AiProposalPanelProps) {
       {currentProposal.status === 'READY' ? (
         <div className="ai-proposal-candidates">
           <div className="ai-proposal-panel__safety-note">
-            <strong>Выбор варианта ещё ничего не применяет.</strong>
-            <span>Это только предварительный выбор педагога для следующего шага.</span>
+            <strong>Выбор варианта ещё ничего не меняет.</strong>
+            <span>
+              Только отдельная кнопка «Применить выбранный вариант» создаст новое решение педагога.
+            </span>
           </div>
 
           {currentProposal.candidates.map((candidate, index) => {
             const selected = candidate.id === selectedCandidateId;
+            const thisCandidateApplying = candidate.id === applyingCandidateId;
             return (
               <article
                 key={candidate.id}
@@ -177,9 +217,17 @@ export function AiProposalPanel({ proposal }: AiProposalPanelProps) {
                 <button
                   type="button"
                   className={selected ? 'button button-secondary' : 'button button-ghost'}
-                  onClick={() => setSelectedCandidateId(selected ? null : candidate.id)}
+                  disabled={applying}
+                  onClick={() => {
+                    setApplyError(null);
+                    setSelectedCandidateId(selected ? null : candidate.id);
+                  }}
                 >
-                  {selected ? 'Снять выбор' : 'Выбрать этот вариант'}
+                  {thisCandidateApplying
+                    ? 'Применяется…'
+                    : selected
+                      ? 'Снять выбор'
+                      : 'Выбрать этот вариант'}
                 </button>
               </article>
             );
@@ -190,9 +238,31 @@ export function AiProposalPanel({ proposal }: AiProposalPanelProps) {
               <span>Выбран вариант</span>
               <strong>{selectedCandidate.value}</strong>
               <p>
-                На следующем этапе появится отдельное действие «Применить». До этого authoritative state урока остаётся прежним.
+                После подтверждения этот текст станет новым утверждённым решением педагога. AI сам ничего не применяет.
               </p>
+              {applyError ? <div className="inline-error">{applyError}</div> : null}
+              <button
+                type="button"
+                className="button button-primary"
+                disabled={applying}
+                onClick={() => void applySelected()}
+              >
+                {applying ? 'Применяется…' : '✓ Применить выбранный вариант'}
+              </button>
             </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {currentProposal.status === 'APPLIED' ? (
+        <div className="ai-proposal-message">
+          <strong>Вариант явно применён педагогом.</strong>
+          <p>
+            {appliedCandidate?.value ??
+              'Новое решение сохранено как teacher-authoritative state. AI-предложение осталось в истории происхождения.'}
+          </p>
+          {currentProposal.appliedDecisionRevision !== undefined ? (
+            <p>Создана ревизия решения {currentProposal.appliedDecisionRevision}.</p>
           ) : null}
         </div>
       ) : null}
@@ -238,6 +308,7 @@ export function AiProposalPanel({ proposal }: AiProposalPanelProps) {
         {currentProposal.promptVersion ? (
           <span>Prompt {currentProposal.promptVersion}</span>
         ) : null}
+        {currentProposal.appliedAt ? <span>Применено {currentProposal.appliedAt}</span> : null}
       </div>
     </section>
   );
