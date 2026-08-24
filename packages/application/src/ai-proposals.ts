@@ -73,6 +73,10 @@ export interface LessonAiProposalRepository {
     lessonId: string,
     semanticKey?: CoreLessonDecisionKey
   ): Promise<LessonAiProposal[]>;
+  getById(
+    context: RequestContext,
+    proposalId: string
+  ): Promise<LessonAiProposal | null>;
 }
 
 function currentDecision(

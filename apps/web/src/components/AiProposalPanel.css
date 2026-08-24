@@ -1,0 +1,187 @@
+.ai-proposal-panel {
+  margin-top: 18px;
+  padding: 18px;
+  border: 1px solid rgba(79, 70, 229, 0.18);
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.92);
+}
+
+.ai-proposal-panel__header,
+.ai-candidate__topline,
+.ai-proposal-panel__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ai-proposal-panel__header h4 {
+  margin: 4px 0 0;
+  font-size: 1rem;
+}
+
+.ai-proposal-panel__eyebrow {
+  color: #6366f1;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ai-proposal-panel__status {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #4338ca;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ai-proposal-progress {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.ai-proposal-progress p,
+.ai-proposal-message p,
+.ai-candidate__explanation p,
+.ai-candidate__distinction p,
+.ai-proposal-selection-summary p {
+  margin: 5px 0 0;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.ai-proposal-progress__dot {
+  width: 10px;
+  height: 10px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: #6366f1;
+  box-shadow: 0 0 0 5px rgba(99, 102, 241, 0.12);
+  flex: 0 0 auto;
+}
+
+.ai-proposal-candidates {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.ai-proposal-panel__safety-note {
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: #ecfdf5;
+  color: #166534;
+}
+
+.ai-proposal-panel__safety-note span {
+  color: #15803d;
+  font-size: 0.88rem;
+}
+
+.ai-candidate {
+  padding: 16px;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  background: #ffffff;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+
+.ai-candidate.is-selected {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+}
+
+.ai-candidate__topline {
+  margin-bottom: 10px;
+  color: #64748b;
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ai-candidate__selected {
+  color: #4338ca;
+}
+
+.ai-candidate__value {
+  margin: 0 0 14px;
+  color: #0f172a;
+  font-size: 1rem;
+  font-weight: 650;
+  line-height: 1.55;
+}
+
+.ai-candidate__explanation,
+.ai-candidate__distinction {
+  margin-bottom: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #f1f5f9;
+  font-size: 0.9rem;
+}
+
+.ai-candidate__distinction strong {
+  color: #475569;
+}
+
+.ai-proposal-selection-summary {
+  padding: 14px;
+  border-radius: 14px;
+  background: #eef2ff;
+}
+
+.ai-proposal-selection-summary > span {
+  display: block;
+  color: #6366f1;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.ai-proposal-selection-summary > strong {
+  display: block;
+  margin-top: 5px;
+  color: #1e1b4b;
+}
+
+.ai-proposal-message {
+  margin-top: 16px;
+  padding: 14px;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.ai-proposal-message--warning {
+  background: #fff7ed;
+  color: #9a3412;
+}
+
+.ai-proposal-message--error {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.ai-proposal-panel__meta {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e8f0;
+  color: #94a3b8;
+  font-size: 0.74rem;
+}
+
+@media (max-width: 720px) {
+  .ai-proposal-panel__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
