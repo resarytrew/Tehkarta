@@ -119,3 +119,6 @@ export * from './repositories/lesson-invalidation.repository.js';
 export * from './repositories/lesson.repository.js';
 export * from './repositories/login-throttle.repository.js';
 export * from './repositories/methodology-feedback.repository.js';
+export * from './repositories/scenario-ai-invocation.repository.js';
+export * from './repositories/scenario-application.repository.js';
+export * from './repositories/scenario-proposal.repository.js';

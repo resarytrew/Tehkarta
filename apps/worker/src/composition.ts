@@ -3,13 +3,17 @@ import {
   createOpenRouterProvider,
   createYandexAIStudioProvider,
   RoutedLessonDecisionProposalGenerator,
+  RoutedLessonScenarioProposalGenerator,
   RoutedProviderRegistry,
   type AIProvider,
   type ModelRoute
 } from '@tehkarta/ai';
 import {
+  BuildApprovedScenarioContext,
   ProcessLessonDecisionProposal,
-  RunNextLessonDecisionProposalJob
+  ProcessLessonScenarioProposal,
+  RunNextLessonDecisionProposalJob,
+  RunNextLessonScenarioProposalJob
 } from '@tehkarta/application';
 import {
   createPostgresPool,
@@ -18,9 +22,13 @@ import {
   PostgresAsyncJobProcessingRepository,
   PostgresCourseRepository,
   PostgresLessonAiProposalRepository,
-  PostgresLessonRepository
+  PostgresLessonContentContextRepository,
+  PostgresLessonRepository,
+  PostgresLessonScenarioProposalRepository,
+  PostgresScenarioAiInvocationRepository
 } from '@tehkarta/database';
 import type { Clock } from '@tehkarta/ports';
+import { RotatingCompositeProposalJobRunner } from './composite-runner.js';
 import type { SupportedAIProvider, WorkerConfig } from './config.js';
 import { jsonConsoleLogger, WorkerRuntime } from './runtime.js';
 
@@ -67,7 +75,11 @@ function providerEntries(config: WorkerConfig): Array<{
   model: string;
   client: AIProvider;
 }> {
-  const routeConfigs = [config.ai.routes.variants, config.ai.routes.reformulate];
+  const routeConfigs = [
+    config.ai.routes.variants,
+    config.ai.routes.reformulate,
+    config.ai.routes.scenario
+  ];
   const unique = new Map<string, { provider: SupportedAIProvider; model: string }>();
   for (const route of routeConfigs) unique.set(`${route.provider}::${route.model}`, route);
 
@@ -100,11 +112,22 @@ export function createWorkerApplication(
       provider: config.ai.routes.reformulate.provider,
       model: config.ai.routes.reformulate.model,
       reasoningEffort: 'low'
+    },
+    {
+      task: 'SCENARIO_DESIGN',
+      provider: config.ai.routes.scenario.provider,
+      model: config.ai.routes.scenario.model,
+      reasoningEffort: 'medium'
     }
   ];
   const router = new ConfiguredAIRouter(routes);
   const providers = new RoutedProviderRegistry(providerEntries(config));
-  const generator = new RoutedLessonDecisionProposalGenerator(
+  const decisionGenerator = new RoutedLessonDecisionProposalGenerator(
+    router,
+    providers,
+    config.ai.routingPolicyVersion
+  );
+  const scenarioGenerator = new RoutedLessonScenarioProposalGenerator(
     router,
     providers,
     config.ai.routingPolicyVersion
@@ -113,23 +136,42 @@ export function createWorkerApplication(
   const clock: Clock = { now: () => new Date() };
   const lessons = new PostgresLessonRepository(pool);
   const courses = new PostgresCourseRepository(pool);
-  const proposals = new PostgresLessonAiProposalRepository(pool);
+  const contentContext = new PostgresLessonContentContextRepository(pool);
   const jobs = new PostgresAsyncJobProcessingRepository(pool);
-  const invocations = new PostgresAiInvocationRepository(pool);
-  const processor = new ProcessLessonDecisionProposal({
+
+  const decisionProposals = new PostgresLessonAiProposalRepository(pool);
+  const decisionProcessor = new ProcessLessonDecisionProposal({
     lessons,
     courses,
-    proposals,
-    generator,
-    invocations,
+    proposals: decisionProposals,
+    generator: decisionGenerator,
+    invocations: new PostgresAiInvocationRepository(pool),
     clock
   });
-  const runner = new RunNextLessonDecisionProposalJob({
+  const decisionRunner = new RunNextLessonDecisionProposalJob({
     jobs,
-    proposals,
-    processor,
+    proposals: decisionProposals,
+    processor: decisionProcessor,
     clock
   });
+
+  const scenarioContext = new BuildApprovedScenarioContext({ lessons, courses, contentContext });
+  const scenarioProposals = new PostgresLessonScenarioProposalRepository(pool);
+  const scenarioProcessor = new ProcessLessonScenarioProposal({
+    scenarioContext,
+    proposals: scenarioProposals,
+    generator: scenarioGenerator,
+    invocations: new PostgresScenarioAiInvocationRepository(pool),
+    clock
+  });
+  const scenarioRunner = new RunNextLessonScenarioProposalJob({
+    jobs,
+    proposals: scenarioProposals,
+    processor: scenarioProcessor,
+    clock
+  });
+
+  const runner = new RotatingCompositeProposalJobRunner([decisionRunner, scenarioRunner]);
 
   return {
     runtime: new WorkerRuntime(runner, jsonConsoleLogger, {

@@ -21,6 +21,7 @@ export interface WorkerConfig {
     routes: {
       variants: WorkerAiRouteConfig;
       reformulate: WorkerAiRouteConfig;
+      scenario: WorkerAiRouteConfig;
     };
     yandex?: {
       apiKey: string;
@@ -68,7 +69,10 @@ function provider(value: string | undefined, name: string): SupportedAIProvider 
   throw new Error(`${name} must be either yandex or openrouter.`);
 }
 
-function route(env: NodeJS.ProcessEnv, prefix: 'VARIANTS' | 'REFORMULATE'): WorkerAiRouteConfig {
+function route(
+  env: NodeJS.ProcessEnv,
+  prefix: 'VARIANTS' | 'REFORMULATE' | 'SCENARIO'
+): WorkerAiRouteConfig {
   return {
     provider: provider(env[`AI_${prefix}_PROVIDER`], `AI_${prefix}_PROVIDER`),
     model: required(env, `AI_${prefix}_MODEL`)
@@ -83,13 +87,18 @@ function optional(value: string | undefined): string | undefined {
 export function workerConfigFromEnv(env: NodeJS.ProcessEnv = process.env): WorkerConfig {
   const variants = route(env, 'VARIANTS');
   const reformulate = route(env, 'REFORMULATE');
-  const providers = new Set<SupportedAIProvider>([variants.provider, reformulate.provider]);
+  const scenario = route(env, 'SCENARIO');
+  const providers = new Set<SupportedAIProvider>([
+    variants.provider,
+    reformulate.provider,
+    scenario.provider
+  ]);
 
   const ai: WorkerConfig['ai'] = {
     routingPolicyVersion: env.AI_ROUTING_POLICY_VERSION?.trim() || 'routing-v2',
     timeoutMs: boundedInteger(env.AI_TIMEOUT_MS, 'AI_TIMEOUT_MS', 90_000, 1_000, 300_000),
     maxTokens: boundedInteger(env.AI_MAX_TOKENS, 'AI_MAX_TOKENS', 2_000, 128, 32_000),
-    routes: { variants, reformulate }
+    routes: { variants, reformulate, scenario }
   };
 
   if (providers.has('yandex')) {

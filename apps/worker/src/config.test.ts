@@ -8,6 +8,8 @@ function baseEnv(): NodeJS.ProcessEnv {
     AI_VARIANTS_MODEL: 'gpt://folder/variants/latest',
     AI_REFORMULATE_PROVIDER: 'openrouter',
     AI_REFORMULATE_MODEL: 'vendor/rewrite-model',
+    AI_SCENARIO_PROVIDER: 'yandex',
+    AI_SCENARIO_MODEL: 'gpt://folder/scenario/latest',
     YANDEX_AI_API_KEY: 'yandex-test-key',
     OPENROUTER_API_KEY: 'openrouter-test-key'
   };
@@ -23,6 +25,10 @@ test('worker config resolves explicit Yandex and OpenRouter routes without fallb
     provider: 'openrouter',
     model: 'vendor/rewrite-model'
   });
+  assert.deepEqual(config.ai.routes.scenario, {
+    provider: 'yandex',
+    model: 'gpt://folder/scenario/latest'
+  });
   assert.equal(config.ai.yandex?.baseUrl, 'https://ai.api.cloud.yandex.net/v1');
   assert.equal(config.ai.openrouter?.baseUrl, 'https://openrouter.ai/api/v1');
   assert.equal(config.ai.routingPolicyVersion, 'routing-v2');
@@ -34,6 +40,8 @@ test('unused provider credentials are not required', () => {
     AI_VARIANTS_MODEL: 'gpt://folder/variants/latest',
     AI_REFORMULATE_PROVIDER: 'yandex',
     AI_REFORMULATE_MODEL: 'gpt://folder/rewrite/latest',
+    AI_SCENARIO_PROVIDER: 'yandex',
+    AI_SCENARIO_MODEL: 'gpt://folder/scenario/latest',
     YANDEX_AI_API_KEY: 'yandex-test-key'
   };
   const config = workerConfigFromEnv(env);
@@ -49,4 +57,8 @@ test('route provider and model must be explicit', () => {
   const env2 = baseEnv();
   delete env2.AI_REFORMULATE_MODEL;
   assert.throws(() => workerConfigFromEnv(env2), /AI_REFORMULATE_MODEL/);
+
+  const env3 = baseEnv();
+  delete env3.AI_SCENARIO_MODEL;
+  assert.throws(() => workerConfigFromEnv(env3), /AI_SCENARIO_MODEL/);
 });

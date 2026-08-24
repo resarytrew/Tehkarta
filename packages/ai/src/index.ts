@@ -55,6 +55,7 @@ export interface AIRouter {
 }
 
 export * from './lesson-decision-proposal-generator.js';
+export * from './lesson-scenario-proposal-generator.js';
 export * from './openai-compatible-provider.js';
 export * from './provider-errors.js';
 export * from './provider-presets.js';

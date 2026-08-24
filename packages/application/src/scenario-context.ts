@@ -28,6 +28,10 @@ export interface ApprovedScenarioContext {
     academicYear: string;
     title: string;
   };
+  sourcePacks: {
+    curriculum: { id: string; version: string; title: string };
+    content: { id: string; version: string; title: string };
+  };
   section: {
     id: string;
     title: string;
@@ -138,6 +142,10 @@ export class BuildApprovedScenarioContext {
         grade: course.grade,
         academicYear: course.academicYear,
         title: course.title
+      },
+      sourcePacks: {
+        curriculum: contentContext.curriculumPack,
+        content: contentContext.contentPack
       },
       section: {
         id: section.id,

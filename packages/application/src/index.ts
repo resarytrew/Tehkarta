@@ -97,3 +97,5 @@ export * from './methodology.js';
 export * from './content-context.js';
 export * from './content-selection.js';
 export * from './scenario-context.js';
+export * from './scenario-proposals.js';
+export * from './scenario-proposal-processing.js';
