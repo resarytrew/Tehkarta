@@ -152,6 +152,13 @@ export class TehkartaApiClient {
     return response.data;
   }
 
+  async getAiProposal(lessonId: string, proposalId: string): Promise<LessonAiProposal> {
+    const response = await this.request<ApiData<LessonAiProposal>>(
+      `/api/v1/lessons/${encodeURIComponent(lessonId)}/ai-proposals/${encodeURIComponent(proposalId)}`
+    );
+    return response.data;
+  }
+
   async requestAiProposal(input: {
     lessonId: string;
     semanticKey: CoreDecisionKey;
