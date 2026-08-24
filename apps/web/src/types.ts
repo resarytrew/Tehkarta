@@ -50,6 +50,8 @@ export interface LessonAiProposal {
   appliedDecisionRevision?: number;
   appliedBy?: string;
   appliedAt?: string;
+  dismissedBy?: string;
+  dismissedAt?: string;
 }
 
 export interface CourseSummary {

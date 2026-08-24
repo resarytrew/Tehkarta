@@ -7,6 +7,8 @@ interface AiProposalPanelProps {
   proposal: LessonAiProposal;
   applyingCandidateId?: string | null;
   onApplyCandidate(candidateId: string): Promise<void>;
+  onDismiss(): Promise<LessonAiProposal>;
+  onRequestMore(): Promise<void>;
 }
 
 const TERMINAL_STATUSES = new Set<LessonAiProposal['status']>([
@@ -43,12 +45,15 @@ function errorText(proposal: LessonAiProposal): string | null {
 export function AiProposalPanel({
   proposal,
   applyingCandidateId = null,
-  onApplyCandidate
+  onApplyCandidate,
+  onDismiss,
+  onRequestMore
 }: AiProposalPanelProps) {
   const [currentProposal, setCurrentProposal] = useState(proposal);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string | null>(null);
   const [pollingError, setPollingError] = useState<string | null>(null);
-  const [applyError, setApplyError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [secondaryBusy, setSecondaryBusy] = useState<'dismiss' | 'more' | null>(null);
 
   const api = useMemo(
     () =>
@@ -63,7 +68,8 @@ export function AiProposalPanel({
     setCurrentProposal(proposal);
     setSelectedCandidateId(null);
     setPollingError(null);
-    setApplyError(null);
+    setActionError(null);
+    setSecondaryBusy(null);
   }, [proposal.id]);
 
   useEffect(() => {
@@ -75,7 +81,7 @@ export function AiProposalPanel({
   useEffect(() => {
     if (currentProposal.status !== 'READY') {
       setSelectedCandidateId(null);
-      setApplyError(null);
+      setActionError(null);
     }
   }, [currentProposal.status]);
 
@@ -133,18 +139,48 @@ export function AiProposalPanel({
   const isPending = currentProposal.status === 'QUEUED' || currentProposal.status === 'RUNNING';
   const failure = errorText(currentProposal);
   const applying = Boolean(applyingCandidateId);
+  const busy = applying || secondaryBusy !== null;
 
   async function applySelected(): Promise<void> {
-    if (!selectedCandidate || currentProposal.status !== 'READY' || applying) return;
-    setApplyError(null);
+    if (!selectedCandidate || currentProposal.status !== 'READY' || busy) return;
+    setActionError(null);
     try {
       await onApplyCandidate(selectedCandidate.id);
     } catch (error) {
-      setApplyError(
+      setActionError(
         error instanceof Error
           ? error.message
           : 'Не удалось применить выбранный AI-вариант.'
       );
+    }
+  }
+
+  async function dismiss(): Promise<void> {
+    if (currentProposal.status !== 'READY' || busy) return;
+    setActionError(null);
+    setSecondaryBusy('dismiss');
+    try {
+      const dismissed = await onDismiss();
+      setCurrentProposal(dismissed);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Не удалось отклонить предложение.');
+    } finally {
+      setSecondaryBusy(null);
+    }
+  }
+
+  async function requestMore(): Promise<void> {
+    if (busy) return;
+    setActionError(null);
+    setSecondaryBusy('more');
+    try {
+      await onRequestMore();
+    } catch (error) {
+      setActionError(
+        error instanceof Error ? error.message : 'Не удалось запросить дополнительные варианты.'
+      );
+    } finally {
+      setSecondaryBusy(null);
     }
   }
 
@@ -217,9 +253,9 @@ export function AiProposalPanel({
                 <button
                   type="button"
                   className={selected ? 'button button-secondary' : 'button button-ghost'}
-                  disabled={applying}
+                  disabled={busy}
                   onClick={() => {
-                    setApplyError(null);
+                    setActionError(null);
                     setSelectedCandidateId(selected ? null : candidate.id);
                   }}
                 >
@@ -240,17 +276,26 @@ export function AiProposalPanel({
               <p>
                 После подтверждения этот текст станет новым утверждённым решением педагога. AI сам ничего не применяет.
               </p>
-              {applyError ? <div className="inline-error">{applyError}</div> : null}
               <button
                 type="button"
                 className="button button-primary"
-                disabled={applying}
+                disabled={busy}
                 onClick={() => void applySelected()}
               >
                 {applying ? 'Применяется…' : '✓ Применить выбранный вариант'}
               </button>
             </div>
           ) : null}
+
+          <div className="ai-proposal-secondary-actions">
+            <button type="button" className="button button-ghost" disabled={busy} onClick={() => void dismiss()}>
+              {secondaryBusy === 'dismiss' ? 'Отклоняется…' : 'Отклонить предложение'}
+            </button>
+            <button type="button" className="button button-secondary" disabled={busy} onClick={() => void requestMore()}>
+              {secondaryBusy === 'more' ? 'Запрашиваем…' : '✨ Запросить ещё варианты'}
+            </button>
+          </div>
+          {actionError ? <div className="inline-error">{actionError}</div> : null}
         </div>
       ) : null}
 
@@ -264,6 +309,20 @@ export function AiProposalPanel({
           {currentProposal.appliedDecisionRevision !== undefined ? (
             <p>Создана ревизия решения {currentProposal.appliedDecisionRevision}.</p>
           ) : null}
+          <button type="button" className="button button-secondary" disabled={busy} onClick={() => void requestMore()}>
+            ✨ Запросить новые варианты
+          </button>
+        </div>
+      ) : null}
+
+      {currentProposal.status === 'DISMISSED' ? (
+        <div className="ai-proposal-message">
+          <strong>Предложение отклонено педагогом.</strong>
+          <p>Урок и утверждённое решение не изменялись. Предложение сохранено в истории.</p>
+          <button type="button" className="button button-secondary" disabled={busy} onClick={() => void requestMore()}>
+            {secondaryBusy === 'more' ? 'Запрашиваем…' : '✨ Запросить другие варианты'}
+          </button>
+          {actionError ? <div className="inline-error">{actionError}</div> : null}
         </div>
       ) : null}
 
@@ -274,6 +333,9 @@ export function AiProposalPanel({
             {failure ??
               'После постановки запроса педагог изменил исходное решение или версию урока.'}
           </p>
+          <button type="button" className="button button-secondary" disabled={busy} onClick={() => void requestMore()}>
+            ✨ Запросить актуальные варианты
+          </button>
         </div>
       ) : null}
 
@@ -284,6 +346,9 @@ export function AiProposalPanel({
             {failure ??
               'Запрос завершился ошибкой. Утверждённое решение педагога не изменилось.'}
           </p>
+          <button type="button" className="button button-secondary" disabled={busy} onClick={() => void requestMore()}>
+            Повторить новым запросом
+          </button>
         </div>
       ) : null}
 
@@ -309,6 +374,7 @@ export function AiProposalPanel({
           <span>Prompt {currentProposal.promptVersion}</span>
         ) : null}
         {currentProposal.appliedAt ? <span>Применено {currentProposal.appliedAt}</span> : null}
+        {currentProposal.dismissedAt ? <span>Отклонено {currentProposal.dismissedAt}</span> : null}
       </div>
     </section>
   );

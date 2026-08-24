@@ -41,6 +41,8 @@ interface ProposalRow {
   applied_decision_revision: number | null;
   applied_by: string | null;
   applied_at: Date | null;
+  dismissed_by: string | null;
+  dismissed_at: Date | null;
 }
 
 function candidates(value: unknown): AiProposalCandidate[] {
@@ -98,6 +100,8 @@ function mapProposal(row: ProposalRow): LessonAiProposal {
   }
   if (row.applied_by) proposal.appliedBy = row.applied_by;
   if (row.applied_at) proposal.appliedAt = row.applied_at.toISOString();
+  if (row.dismissed_by) proposal.dismissedBy = row.dismissed_by;
+  if (row.dismissed_at) proposal.dismissedAt = row.dismissed_at.toISOString();
 
   return proposal;
 }
@@ -110,7 +114,7 @@ const SELECT_COLUMNS = `
   prompt_version, routing_policy_version, error_json,
   created_at, updated_at, completed_at,
   applied_candidate_id, applied_decision_id, applied_decision_revision,
-  applied_by, applied_at
+  applied_by, applied_at, dismissed_by, dismissed_at
 `;
 
 async function existingByIdempotency(
@@ -288,6 +292,33 @@ export class PostgresLessonAiProposalRepository
     );
     const row = result.rows[0];
     return row ? mapProposal(row) : null;
+  }
+
+  async dismiss(
+    context: RequestContext,
+    input: { proposalId: string; dismissedAt: string }
+  ): Promise<LessonAiProposal> {
+    const result = await this.pool.query<ProposalRow>(
+      `UPDATE lesson_ai_proposals
+       SET status = 'DISMISSED', dismissed_by = $3, dismissed_at = $4, updated_at = $4
+       WHERE workspace_id = $1 AND id = $2 AND status = 'READY'
+       RETURNING ${SELECT_COLUMNS}`,
+      [context.workspaceId, input.proposalId, context.actorUserId, new Date(input.dismissedAt)]
+    );
+    const row = result.rows[0];
+    if (row) return mapProposal(row);
+
+    const current = await this.getById(context, input.proposalId);
+    if (!current) {
+      throw new ApplicationError('NOT_FOUND', `AI proposal ${input.proposalId} was not found.`);
+    }
+    if (current.status === 'DISMISSED') return current;
+
+    throw new ApplicationError(
+      'CONFLICT',
+      `AI proposal ${input.proposalId} cannot transition from ${current.status} to DISMISSED.`,
+      { currentStatus: current.status, targetStatus: 'DISMISSED' }
+    );
   }
 
   private async requireTransition(
