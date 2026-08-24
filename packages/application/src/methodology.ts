@@ -96,13 +96,19 @@ function methodScore(method: MethodDefinition, kinds: OutcomeKind[], text: strin
 
 function recommendationId(
   pack: MethodologyPack,
-  lesson: Lesson,
+  _lesson: Lesson,
   outcome: GovernedField<string>,
   methodId: string
 ): string {
-  return [pack.id, pack.version, lesson.id, outcome.fieldId, `r${outcome.meta.revision}`, methodId]
-    .join('__')
-    .replace(/[^a-zA-Z0-9_.:-]+/g, '-');
+  // Recommendation IDs are used as route parameters. Keep them comfortably below
+  // Fastify's parameter-length guard while retaining stable identity across reads.
+  // Governed field IDs are globally generated; the last 36 chars preserve the UUID
+  // portion for generated IDs, while pack version + field revision + method keep
+  // recommendations distinct across methodology and lesson revisions.
+  const outcomeIdentity = outcome.fieldId.slice(-36).replace(/[^a-zA-Z0-9_.:-]+/g, '-');
+  const packVersion = pack.version.replace(/[^a-zA-Z0-9_.:-]+/g, '-');
+  const method = methodId.replace(/[^a-zA-Z0-9_.:-]+/g, '-');
+  return `mrec_${packVersion}_${outcomeIdentity}_r${outcome.meta.revision}_${method}`;
 }
 
 function rationaleFor(method: MethodDefinition, kinds: OutcomeKind[], problemQuestion?: string): string {
