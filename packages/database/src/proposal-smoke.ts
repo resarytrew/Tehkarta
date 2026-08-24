@@ -9,6 +9,7 @@ import {
 } from '@tehkarta/application';
 import type { Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
 import { migrateDatabase } from './migrate.js';
+import { PostgresAiInvocationRepository } from './repositories/ai-invocation.repository.js';
 import { PostgresLessonAiProposalApplicationRepository } from './repositories/ai-proposal-application.repository.js';
 import { PostgresLessonAiProposalRepository } from './repositories/ai-proposal.repository.js';
 import { PostgresAsyncJobProcessingRepository } from './repositories/async-job.repository.js';
@@ -45,6 +46,7 @@ try {
   const proposals = new PostgresLessonAiProposalRepository(pool);
   const proposalApplication = new PostgresLessonAiProposalApplicationRepository(pool);
   const jobs = new PostgresAsyncJobProcessingRepository(pool);
+  const invocations = new PostgresAiInvocationRepository(pool);
   const requestProposal = new RequestCoreDecisionAiProposal({ lessons, proposals, clock, ids });
   const applyProposalCandidate = new ApplyLessonAiProposalCandidate({
     lessons,
@@ -177,10 +179,17 @@ try {
             rationale: 'Формулировка короче и сохраняет причинно-следственный характер.'
           }
         ],
+        taskType: 'REFORMULATE',
         provider: 'smoke-provider',
         model: 'smoke-model',
         promptVersion: 'proposal-v1-smoke',
-        routingPolicyVersion: 'routing-v1-smoke'
+        routingPolicyVersion: 'routing-v2-smoke',
+        inputHash: 'c7f1b3cb35d2da91a283c0aa50d8dad2e43c2928ddc92af39fb130b4a21f12ef',
+        latencyMs: 320,
+        inputTokens: 120,
+        outputTokens: 45,
+        costMicrounits: 1250,
+        providerRequestId: 'provider-request-smoke-1'
       };
     }
   };
@@ -190,6 +199,7 @@ try {
     courses,
     proposals,
     generator,
+    invocations,
     clock
   });
   const runner = new RunNextLessonDecisionProposalJob({ jobs, proposals, processor, clock });
@@ -213,6 +223,47 @@ try {
     ready.provider !== 'smoke-provider'
   ) {
     throw new Error('Generated candidates were not persisted as a separate READY proposal.');
+  }
+
+  const trace = await pool.query<{
+    proposal_id: string | null;
+    task_type: string;
+    provider: string;
+    model: string;
+    prompt_version: string;
+    routing_policy_version: string;
+    input_hash: string;
+    status: string;
+    latency_ms: number | null;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    cost_microunits: string | null;
+    metadata: Record<string, unknown>;
+  }>(
+    `SELECT proposal_id, task_type, provider, model, prompt_version,
+            routing_policy_version, input_hash, status, latency_ms,
+            input_tokens, output_tokens, cost_microunits, metadata
+     FROM ai_invocations
+     WHERE workspace_id = $1 AND proposal_id = $2`,
+    [context.workspaceId, proposal.id]
+  );
+  const invocation = trace.rows[0];
+  if (
+    invocation?.proposal_id !== proposal.id ||
+    invocation.task_type !== 'REFORMULATE' ||
+    invocation.provider !== 'smoke-provider' ||
+    invocation.model !== 'smoke-model' ||
+    invocation.prompt_version !== 'proposal-v1-smoke' ||
+    invocation.routing_policy_version !== 'routing-v2-smoke' ||
+    invocation.input_hash !== 'c7f1b3cb35d2da91a283c0aa50d8dad2e43c2928ddc92af39fb130b4a21f12ef' ||
+    invocation.status !== 'SUCCEEDED' ||
+    invocation.latency_ms !== 320 ||
+    invocation.input_tokens !== 120 ||
+    invocation.output_tokens !== 45 ||
+    invocation.cost_microunits !== '1250' ||
+    invocation.metadata?.providerRequestId !== 'provider-request-smoke-1'
+  ) {
+    throw new Error('AI invocation trace did not preserve expected execution metadata.');
   }
 
   const authoritativeAfterGeneration = await lessons.getById(context, 'lesson_smoke');
@@ -347,6 +398,16 @@ try {
     throw new Error('Stale proposal state was not persisted.');
   }
 
+  const staleTrace = await pool.query<{ count: string }>(
+    `SELECT count(*)::text AS count
+     FROM ai_invocations
+     WHERE workspace_id = $1 AND proposal_id = $2`,
+    [context.workspaceId, staleCandidate.id]
+  );
+  if (staleTrace.rows[0]?.count !== '0') {
+    throw new Error('A stale proposal recorded an AI invocation even though the model was skipped.');
+  }
+
   const firstJobAfter = await pool.query<{ status: string; result_json: unknown }>(
     `SELECT status, result_json FROM async_jobs WHERE id = $1`,
     [proposal.asyncJobId]
@@ -355,7 +416,7 @@ try {
     throw new Error('Successfully generated proposal did not complete its async job.');
   }
 
-  console.info('[database] AI proposal queue + worker + explicit teacher apply smoke test passed');
+  console.info('[database] AI proposal queue + trace + explicit teacher apply smoke test passed');
 } finally {
   await pool.end();
 }

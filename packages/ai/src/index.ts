@@ -7,6 +7,7 @@ export interface GenerateOptions {
   reasoningEffort?: ReasoningEffort;
   responseSchemaName?: string;
   responseSchema?: Readonly<Record<string, unknown>>;
+  signal?: AbortSignal;
 }
 
 export interface GeneratedText {
@@ -16,12 +17,20 @@ export interface GeneratedText {
   inputTokens?: number;
   outputTokens?: number;
   latencyMs?: number;
+  costMicrounits?: number;
+  requestId?: string;
+}
+
+export interface StructuredGeneration<T> {
+  value: T;
+  generated: GeneratedText;
 }
 
 export interface AIProvider {
   readonly name: string;
   generate(options: GenerateOptions): Promise<GeneratedText>;
   generateStructured<T>(options: GenerateOptions): Promise<T>;
+  generateStructuredResult<T>(options: GenerateOptions): Promise<StructuredGeneration<T>>;
   embed(texts: string[]): Promise<number[][]>;
 }
 
@@ -47,4 +56,6 @@ export interface AIRouter {
 
 export * from './lesson-decision-proposal-generator.js';
 export * from './openai-compatible-provider.js';
+export * from './provider-errors.js';
+export * from './provider-presets.js';
 export * from './routing.js';

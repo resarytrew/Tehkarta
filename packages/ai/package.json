@@ -13,12 +13,13 @@
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "tsc -p tsconfig.json",
-    "test": "echo 'AI adapters are exercised through integration smoke tests'"
+    "test": "node --test dist/**/*.test.js"
   },
   "dependencies": {
     "@tehkarta/application": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^22.10.2",
     "typescript": "^5.6.3"
   }
 }

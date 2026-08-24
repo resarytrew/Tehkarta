@@ -1,0 +1,28 @@
+{
+  "id": "history-9-industrial-revolution-problem-question-v1",
+  "subject": "История",
+  "grade": 9,
+  "courseTitle": "Всеобщая история. История Нового времени. XIX — начало XX в.",
+  "sectionTitle": "Начало индустриальной эпохи",
+  "lessonTitle": "Экономика делает решающий рывок",
+  "semanticKey": "problemQuestion",
+  "action": "IMPROVE",
+  "candidateCount": 1,
+  "approvedTeacherValue": "Почему в XIX в. промышленная революция достигла огромных успехов?",
+  "approvedContext": {
+    "approvedGoal": "Выявить причины и механизмы промышленного рывка XIX века.",
+    "approvedProblemQuestion": "Почему в XIX в. промышленная революция достигла огромных успехов?",
+    "approvedBigIdea": "Промышленный рывок был результатом взаимного усиления технических, экономических и социальных изменений.",
+    "approvedOutcomes": [
+      "Объяснять причинно-следственные связи промышленной революции.",
+      "Использовать понятия «вторая промышленная революция» и «монополия»."
+    ]
+  },
+  "invariants": {
+    "teacherValueMustRemainUnchangedUntilExplicitApply": true,
+    "improveMustPreserveTeacherIntent": true,
+    "mustNotClaimUnretrievedUmkEvidence": true,
+    "mustReturnStructuredCandidates": true,
+    "mustRecordProviderModelPromptAndRoutingVersions": true
+  }
+}
