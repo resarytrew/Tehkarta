@@ -1,24 +1,26 @@
 locals {
   runtime_service_account_name = coalesce(var.service_account_name, "${var.name}-worker-runtime")
+  runtime_member               = "serviceAccount:${yandex_iam_service_account.runtime.id}"
 }
 
 resource "yandex_iam_service_account" "runtime" {
-  folder_id = var.folder_id
-  name      = local.runtime_service_account_name
+  folder_id   = var.folder_id
+  name        = local.runtime_service_account_name
+  description = "Runtime identity for the Tehkarta AI proposal worker."
 }
 
 resource "yandex_resourcemanager_folder_iam_member" "runtime_image_puller" {
   folder_id = var.folder_id
   role      = "container-registry.images.puller"
-  member    = "serviceAccount:${yandex_iam_service_account.runtime.id}"
+  member    = local.runtime_member
 }
 
-resource "yandex_resourcemanager_folder_iam_member" "runtime_lockbox_payload_viewer" {
+resource "yandex_lockbox_secret_iam_member" "runtime" {
   for_each = var.secret_environment
 
-  folder_id = var.folder_id
+  secret_id = each.value.id
   role      = "lockbox.payloadViewer"
-  member    = "serviceAccount:${yandex_iam_service_account.runtime.id}"
+  member    = local.runtime_member
 }
 
 resource "yandex_serverless_container" "worker" {
@@ -58,6 +60,6 @@ resource "yandex_serverless_container" "worker" {
 
   depends_on = [
     yandex_resourcemanager_folder_iam_member.runtime_image_puller,
-    yandex_resourcemanager_folder_iam_member.runtime_lockbox_payload_viewer
+    yandex_lockbox_secret_iam_member.runtime
   ]
 }
