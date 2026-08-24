@@ -7,9 +7,15 @@ import type {
   CoreDecisionKey,
   Course,
   CourseSummary,
+  CoursePlanningSnapshot,
+  CourseLessonProgression,
+  CourseSourceRole,
   GovernanceResponse,
   Lesson,
   LessonAiProposal,
+  LessonDesignArtifact,
+  LessonDesignArtifactKind,
+  ApprovedScenarioContext,
   LessonContentContext,
   LessonInvalidation,
   LessonSummary,
@@ -86,7 +92,7 @@ export class TehkartaApiClient {
     headers.set('x-workspace-id', this.config.workspaceId);
     headers.set('accept', 'application/json');
 
-    if (init.body !== undefined && !headers.has('content-type')) {
+    if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has('content-type')) {
       headers.set('content-type', 'application/json');
     }
 
@@ -142,6 +148,114 @@ export class TehkartaApiClient {
   async getLessonContentContext(lessonId: string): Promise<LessonContentContext> {
     const response = await this.request<ApiData<LessonContentContext>>(
       `/api/v1/lessons/${encodeURIComponent(lessonId)}/content-context`
+    );
+    return response.data;
+  }
+
+  async getCoursePlanning(courseId: string): Promise<CoursePlanningSnapshot> {
+    const response = await this.request<ApiData<CoursePlanningSnapshot>>(
+      `/api/v1/courses/${encodeURIComponent(courseId)}/planning-context`
+    );
+    return response.data;
+  }
+
+  async saveCoursePlan(input: {
+    courseId: string;
+    expectedRevision: number;
+    goals: string[];
+    plannedOutcomes: string[];
+    contentSummary: string;
+    lessons: CourseLessonProgression[];
+  }): Promise<CoursePlanningSnapshot> {
+    const response = await this.request<ApiData<CoursePlanningSnapshot>>(
+      `/api/v1/courses/${encodeURIComponent(input.courseId)}/plan`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          expectedRevision: input.expectedRevision,
+          goals: input.goals,
+          plannedOutcomes: input.plannedOutcomes,
+          contentSummary: input.contentSummary,
+          lessons: input.lessons
+        })
+      },
+      { csrf: true }
+    );
+    return response.data;
+  }
+
+  async approveCoursePlan(courseId: string, expectedRevision: number): Promise<CoursePlanningSnapshot> {
+    const response = await this.request<ApiData<CoursePlanningSnapshot>>(
+      `/api/v1/courses/${encodeURIComponent(courseId)}/plan/approve`,
+      { method: 'POST', body: JSON.stringify({ expectedRevision }) },
+      { csrf: true }
+    );
+    return response.data;
+  }
+
+  async uploadCourseSource(input: {
+    courseId: string;
+    file: File;
+    title: string;
+    sourceRole: CourseSourceRole;
+    rightsBasis: string;
+  }): Promise<CoursePlanningSnapshot> {
+    const query = new URLSearchParams({
+      title: input.title,
+      sourceRole: input.sourceRole,
+      rightsBasis: input.rightsBasis
+    });
+    const form = new FormData();
+    form.append('file', input.file);
+    const response = await this.request<ApiData<CoursePlanningSnapshot>>(
+      `/api/v1/courses/${encodeURIComponent(input.courseId)}/sources?${query.toString()}`,
+      { method: 'POST', body: form },
+      { csrf: true }
+    );
+    return response.data;
+  }
+
+  async approveCourseSource(courseId: string, bindingId: string): Promise<CoursePlanningSnapshot> {
+    const response = await this.request<ApiData<CoursePlanningSnapshot>>(
+      `/api/v1/courses/${encodeURIComponent(courseId)}/sources/${encodeURIComponent(bindingId)}/approve`,
+      { method: 'POST' },
+      { csrf: true }
+    );
+    return response.data;
+  }
+
+  async getScenarioContext(lessonId: string): Promise<ApprovedScenarioContext> {
+    const response = await this.request<ApiData<ApprovedScenarioContext>>(
+      `/api/v1/lessons/${encodeURIComponent(lessonId)}/scenario-context`
+    );
+    return response.data;
+  }
+
+  async listDesignArtifacts(lessonId: string): Promise<LessonDesignArtifact[]> {
+    const response = await this.request<ApiData<LessonDesignArtifact[]>>(
+      `/api/v1/lessons/${encodeURIComponent(lessonId)}/design-artifacts`
+    );
+    return response.data;
+  }
+
+  async saveDesignArtifact(input: {
+    lessonId: string;
+    kind: LessonDesignArtifactKind;
+    expectedLessonVersion: number;
+    expectedRevision: number;
+    payload: Readonly<Record<string, unknown>>;
+  }): Promise<LessonDesignArtifact> {
+    const response = await this.request<ApiData<LessonDesignArtifact>>(
+      `/api/v1/lessons/${encodeURIComponent(input.lessonId)}/design-artifacts/${encodeURIComponent(input.kind)}`,
+      {
+        method: 'PUT',
+        body: JSON.stringify({
+          expectedLessonVersion: input.expectedLessonVersion,
+          expectedRevision: input.expectedRevision,
+          payload: input.payload
+        })
+      },
+      { csrf: true }
     );
     return response.data;
   }

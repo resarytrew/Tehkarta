@@ -1,6 +1,7 @@
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
+import multipart from '@fastify/multipart';
 import Fastify, { type FastifyInstance } from 'fastify';
 import {
   ApplicationError,
@@ -8,10 +9,12 @@ import {
   EditCoreLessonDecision,
   type CoreLessonDecisionKey,
   type CourseRepository,
+  type CoursePlanningRepository,
   type LessonAiProposalApplicationRepository,
   type LessonAiProposalRepository,
   type LessonContentContextRepository,
   type LessonContentSelectionRepository,
+  type LessonDesignArtifactRepository,
   type LessonInvalidationRepository,
   type LessonRepository,
   type MethodologyFeedbackRepository
@@ -33,13 +36,16 @@ import {
 import type { ApiConfig } from './config.js';
 import { registerContentContextRoutes } from './content-context-routes.js';
 import { registerContentSelectionRoutes } from './content-selection-routes.js';
+import { registerCoursePlanningRoutes } from './course-planning-routes.js';
 import { registerMethodologyRoutes } from './methodology-routes.js';
+import { registerLessonWorkflowRoutes } from './lesson-workflow-routes.js';
 import { hashClientIp } from './security.js';
 
 export interface ApiDependencies {
   sessions: SessionService;
   passwordLogin: PasswordLoginService;
   courses: CourseRepository;
+  coursePlanning?: CoursePlanningRepository;
   lessons: LessonRepository;
   invalidations: LessonInvalidationRepository;
   proposals: LessonAiProposalRepository;
@@ -47,6 +53,7 @@ export interface ApiDependencies {
   methodologyFeedback: MethodologyFeedbackRepository;
   contentContext: LessonContentContextRepository;
   contentSelections?: LessonContentSelectionRepository;
+  designArtifacts?: LessonDesignArtifactRepository;
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
@@ -132,6 +139,9 @@ export async function createApiApp(
     contentSecurityPolicy: false
   });
   await app.register(cookie);
+  await app.register(multipart, {
+    limits: { files: 1, fileSize: 10_485_760, parts: 4 }
+  });
   await app.register(cors, {
     origin: config.allowedOrigins,
     credentials: true,
@@ -280,6 +290,16 @@ export async function createApiApp(
     }
   );
 
+  if (dependencies.coursePlanning) {
+    await registerCoursePlanningRoutes(app, {
+      auth: authRuntime,
+      planning: dependencies.coursePlanning,
+      authorization: dependencies.authorization,
+      clock: dependencies.clock,
+      ids: dependencies.ids
+    });
+  }
+
   app.get<{ Params: { lessonId: string } }>('/api/v1/lessons/:lessonId', async (request) => {
     const principal = await requireWorkspacePrincipal(request, authRuntime);
     const context = requestContextFromPrincipal(request, principal);
@@ -420,6 +440,7 @@ export async function createApiApp(
     lessons: dependencies.lessons,
     invalidations: dependencies.invalidations,
     feedback: dependencies.methodologyFeedback,
+    ...(dependencies.coursePlanning ? { planning: dependencies.coursePlanning } : {}),
     authorization: dependencies.authorization,
     clock: dependencies.clock,
     ids: dependencies.ids
@@ -438,6 +459,20 @@ export async function createApiApp(
       contentContext: dependencies.contentContext,
       contentSelections: dependencies.contentSelections,
       invalidations: dependencies.invalidations,
+      authorization: dependencies.authorization,
+      clock: dependencies.clock,
+      ids: dependencies.ids
+    });
+  }
+
+  if (dependencies.designArtifacts) {
+    await registerLessonWorkflowRoutes(app, {
+      auth: authRuntime,
+      courses: dependencies.courses,
+      ...(dependencies.coursePlanning ? { coursePlanning: dependencies.coursePlanning } : {}),
+      lessons: dependencies.lessons,
+      contentContext: dependencies.contentContext,
+      artifacts: dependencies.designArtifacts,
       authorization: dependencies.authorization,
       clock: dependencies.clock,
       ids: dependencies.ids

@@ -1,0 +1,38 @@
+.workflow-panel { display: grid; gap: 22px; }
+.workflow-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.workflow-summary-grid article, .workflow-callout, .workflow-warning, .scenario-stage, .material-editor, .expert-check, .lesson-map section { border: 1px solid var(--border-color, #dfe3e0); background: #fff; border-radius: 14px; padding: 16px; }
+.workflow-summary-grid article { display: grid; gap: 7px; }
+.workflow-summary-grid span, .material-editor span { color: #65706a; font-size: 12px; }
+.workflow-callout { display: flex; align-items: center; justify-content: space-between; gap: 20px; }
+.workflow-next-card { display: flex; align-items: center; justify-content: space-between; gap: 20px; border: 1px solid #b9c9bf; background: #f4f8f5; border-radius: 14px; padding: 16px; margin-top: 18px; }
+.workflow-next-card p { margin: 6px 0 0; color: #65706a; }
+.workflow-callout p { margin: 6px 0 0; }
+.workflow-warning { border-color: #d7a847; background: #fff9ea; }
+.workflow-warning p { margin: 6px 0 0; }
+.scenario-timing, .workflow-actions, .material-editor > div { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.scenario-timing .is-ok { color: #24744b; }
+.scenario-timing .is-error { color: #a84435; }
+.scenario-stage-list, .material-list, .expert-check-list { display: grid; gap: 12px; }
+.scenario-stage { display: grid; gap: 12px; }
+.scenario-stage__top { display: grid; grid-template-columns: 28px 1fr 88px; align-items: center; gap: 10px; }
+.scenario-stage__top > span { width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; background: #e9efe9; font-weight: 700; }
+.scenario-stage input, .scenario-stage textarea, .material-editor input, .material-editor textarea { box-sizing: border-box; width: 100%; border: 1px solid #cfd6d1; border-radius: 9px; padding: 10px 12px; font: inherit; background: #fbfcfb; }
+.scenario-stage textarea, .material-editor textarea { min-height: 78px; resize: vertical; }
+.scenario-stage__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.minutes-input { text-align: center; }
+.material-editor { display: grid; gap: 10px; }
+.material-editor label { display: flex; align-items: center; gap: 7px; font-weight: 650; }
+.material-editor label input { width: auto; }
+.expert-score { display: flex; align-items: baseline; gap: 12px; }
+.expert-score strong { font-size: 36px; }
+.expert-check { display: flex; align-items: center; gap: 12px; }
+.expert-check > span { width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; font-weight: 800; }
+.expert-check p { margin: 0; }
+.expert-check.is-passed > span { background: #daf0e3; color: #24744b; }
+.expert-check.is-failed > span { background: #f9dfd9; color: #a84435; }
+.lesson-map section { display: grid; gap: 9px; }
+.lesson-map section h3, .lesson-map section p, .lesson-map section ul { margin: 0; }
+.map-stage { display: grid; grid-template-columns: minmax(180px, .7fr) 1fr; gap: 16px; padding: 9px 0; border-top: 1px solid #edf0ed; }
+.map-stage span { color: #56615b; }
+@media (max-width: 900px) { .workflow-summary-grid { grid-template-columns: 1fr; } .scenario-stage__actions, .map-stage { grid-template-columns: 1fr; } .workflow-callout, .workflow-next-card { align-items: flex-start; flex-direction: column; } }
+@media print { body { background: white !important; } .app-header, .course-sidebar, .design-steps, .workspace-side-column, .no-print { display: none !important; } .workspace-grid, .workspace-main-column { display: block !important; width: 100% !important; } .lesson-map section { break-inside: avoid; box-shadow: none; } }

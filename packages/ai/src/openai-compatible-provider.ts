@@ -20,6 +20,7 @@ export interface OpenAICompatibleProviderConfig {
   timeoutMs?: number;
   maxTokens?: number;
   extraHeaders?: Readonly<Record<string, string>>;
+  structuredOutputMode?: 'json-schema' | 'json-object';
 }
 
 interface ChatCompletionResponse {
@@ -50,8 +51,12 @@ function positiveNumber(value: number | undefined, fallback: number): number {
   return Number.isFinite(value) && (value ?? 0) > 0 ? value! : fallback;
 }
 
-function jsonSchemaResponseFormat(options: GenerateOptions): unknown {
+function jsonSchemaResponseFormat(
+  options: GenerateOptions,
+  mode: 'json-schema' | 'json-object'
+): unknown {
   if (options.responseSchema) {
+    if (mode === 'json-object') return { type: 'json_object' };
     return {
       type: 'json_schema',
       json_schema: {
@@ -67,9 +72,29 @@ function jsonSchemaResponseFormat(options: GenerateOptions): unknown {
   return undefined;
 }
 
+function promptWithStructuredOutputInstruction(
+  options: GenerateOptions,
+  mode: 'json-schema' | 'json-object'
+): string {
+  if (mode !== 'json-object') return options.prompt;
+  if (options.responseSchema) {
+    return `${options.prompt}\n\nReturn exactly one valid JSON object without markdown or prose. Match this JSON Schema exactly:\n${JSON.stringify(options.responseSchema)}`;
+  }
+  if (options.responseSchemaName) {
+    return `${options.prompt}\n\nReturn exactly one valid JSON object without markdown or prose.`;
+  }
+  return options.prompt;
+}
+
 function requestSignal(options: GenerateOptions, timeoutMs: number): AbortSignal {
   const timeout = AbortSignal.timeout(timeoutMs);
   return options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+}
+
+function structuredJsonText(value: string): string {
+  const trimmed = value.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  return fenced?.[1]?.trim() ?? trimmed;
 }
 
 function requestId(headers: Headers): string | undefined {
@@ -207,16 +232,21 @@ export class OpenAICompatibleChatProvider implements AIProvider {
     latencyMs: number;
     requestId?: string;
   }> {
-    const responseFormat = jsonSchemaResponseFormat(options);
+    const structuredOutputMode = this.config.structuredOutputMode ?? 'json-schema';
+    const responseFormat = jsonSchemaResponseFormat(options, structuredOutputMode);
+    const prompt = promptWithStructuredOutputInstruction(options, structuredOutputMode);
     const body = {
       model: this.config.model,
       messages: [
         { role: 'system', content: options.system },
-        { role: 'user', content: options.prompt }
+        { role: 'user', content: prompt }
       ],
       temperature: options.temperature ?? 0.3,
       max_tokens: this.maxTokens,
       stream: false,
+      ...(options.reasoningEffort
+        ? { reasoning: { effort: options.reasoningEffort, exclude: true } }
+        : {}),
       ...(responseFormat ? { response_format: responseFormat } : {})
     };
 
@@ -294,7 +324,7 @@ export class OpenAICompatibleChatProvider implements AIProvider {
     });
     try {
       return {
-        value: JSON.parse(generated.text) as T,
+        value: JSON.parse(structuredJsonText(generated.text)) as T,
         generated
       };
     } catch (error) {

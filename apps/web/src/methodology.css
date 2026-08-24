@@ -18,6 +18,28 @@
   gap: 12px;
 }
 
+.methodology-course-context {
+  display: grid;
+  grid-template-columns: 1.35fr 1fr 1fr;
+  gap: 14px;
+  margin: 18px 0;
+  padding: 18px;
+  border-radius: 18px;
+  background: #17251f;
+  color: #fff;
+}
+
+.methodology-course-context h3 { margin: 6px 0; }
+.methodology-course-context p { margin: 0; color: #b8c8c0; }
+.methodology-course-context > div:not(:first-child) { display: grid; align-content: center; gap: 6px; padding-left: 14px; border-left: 1px solid rgba(255,255,255,.14); }
+.methodology-course-context > div:not(:first-child) span { color: #9fb3aa; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; }
+.methodology-course-context > div:not(:first-child) strong { line-height: 1.45; }
+
+@media (max-width: 900px) {
+  .methodology-course-context { grid-template-columns: 1fr; }
+  .methodology-course-context > div:not(:first-child) { padding: 12px 0 0; border-left: 0; border-top: 1px solid rgba(255,255,255,.14); }
+}
+
 .methodology-principle > div,
 .outcome-panel,
 .methodology-pack-banner,

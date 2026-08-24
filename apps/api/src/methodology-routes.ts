@@ -7,7 +7,8 @@ import {
   RejectMethodologyRecommendation,
   type LessonInvalidationRepository,
   type LessonRepository,
-  type MethodologyFeedbackRepository
+  type MethodologyFeedbackRepository,
+  type CoursePlanningRepository
 } from '@tehkarta/application';
 import type { AuthorizationPolicy, Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
 import {
@@ -22,6 +23,7 @@ export interface MethodologyRouteDependencies {
   lessons: LessonRepository;
   invalidations: LessonInvalidationRepository;
   feedback: MethodologyFeedbackRepository;
+  planning?: CoursePlanningRepository;
   authorization: AuthorizationPolicy;
   clock: Clock;
   ids: IdGenerator;
@@ -59,7 +61,12 @@ export async function registerMethodologyRoutes(
   app: FastifyInstance,
   dependencies: MethodologyRouteDependencies
 ): Promise<void> {
-  const list = new ListMethodologyRecommendations(dependencies.lessons, dependencies.feedback);
+  const list = new ListMethodologyRecommendations(
+    dependencies.lessons,
+    dependencies.feedback,
+    undefined,
+    dependencies.planning
+  );
   const addOutcome = new AddApprovedLessonOutcome({
     lessons: dependencies.lessons,
     invalidations: dependencies.invalidations,
@@ -70,12 +77,14 @@ export async function registerMethodologyRoutes(
     lessons: dependencies.lessons,
     invalidations: dependencies.invalidations,
     clock: dependencies.clock,
-    ids: dependencies.ids
+    ids: dependencies.ids,
+    ...(dependencies.planning ? { planning: dependencies.planning } : {})
   });
   const reject = new RejectMethodologyRecommendation({
     lessons: dependencies.lessons,
     feedback: dependencies.feedback,
-    clock: dependencies.clock
+    clock: dependencies.clock,
+    ...(dependencies.planning ? { planning: dependencies.planning } : {})
   });
 
   app.get<{ Params: { lessonId: string } }>(

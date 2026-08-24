@@ -9,6 +9,7 @@ import type {
   AiProposalCandidate,
   LessonAiProposal
 } from './ai-proposals.js';
+import type { ApprovedCourseLessonContext, CoursePlanningRepository } from './course-planning.js';
 
 export interface ClaimedAsyncJob {
   id: string;
@@ -142,6 +143,7 @@ export interface ApprovedProposalGenerationContext {
   approvedTechniques: string[];
   approvedForms: string[];
   approvedContentItems: string[];
+  coursePlanning?: ApprovedCourseLessonContext;
 }
 
 export interface ProposalGenerationResult {
@@ -193,7 +195,8 @@ function approvedProfile(lesson: Lesson): Record<string, string> {
 
 export function buildApprovedProposalContext(
   course: Course,
-  lesson: Lesson
+  lesson: Lesson,
+  coursePlanning?: ApprovedCourseLessonContext
 ): ApprovedProposalGenerationContext {
   const section = course.sections.find((item) => item.id === lesson.sectionId);
   if (!section) {
@@ -232,7 +235,8 @@ export function buildApprovedProposalContext(
     approvedMethods: approvedStrings(lesson.selectedMethods),
     approvedTechniques: approvedStrings(lesson.selectedTechniques),
     approvedForms: approvedStrings(lesson.selectedForms),
-    approvedContentItems: approvedStrings(lesson.contentItems)
+    approvedContentItems: approvedStrings(lesson.contentItems),
+    ...(coursePlanning ? { coursePlanning } : {})
   };
 
   const goal = approvedValue(lesson.goal);
@@ -457,6 +461,7 @@ export interface ProcessLessonDecisionProposalDependencies {
   generator: LessonDecisionProposalGenerator;
   clock: Clock;
   invocations?: AiInvocationTraceRepository;
+  coursePlanning?: CoursePlanningRepository;
 }
 
 /**
@@ -507,13 +512,17 @@ export class ProcessLessonDecisionProposal {
 
     await this.deps.proposals.markRunning(context, { proposalId: proposal.id, now });
 
+    const coursePlanning = this.deps.coursePlanning
+      ? await this.deps.coursePlanning.getApprovedLessonContext(context, course.id, lesson.id)
+      : null;
+
     const targetValue = currentTargetField(lesson, proposal)?.value;
     let generated: ProposalGenerationResult;
     try {
       generated = await this.deps.generator.generate({
         proposal,
         ...(targetValue !== undefined ? { targetValue } : {}),
-        context: buildApprovedProposalContext(course, lesson)
+        context: buildApprovedProposalContext(course, lesson, coursePlanning ?? undefined)
       });
     } catch (error) {
       if (this.deps.invocations && execution) {

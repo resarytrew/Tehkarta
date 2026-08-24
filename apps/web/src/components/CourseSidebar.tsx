@@ -8,6 +8,8 @@ interface CourseSidebarProps {
   selectedLessonId: string | null;
   onSelectCourse(courseId: string): void;
   onSelectLesson(lessonId: string): void;
+  onOpenCoursePlan(): void;
+  coursePlanActive: boolean;
 }
 
 const lessonStateLabel: Record<LessonSummary['state'], string> = {
@@ -24,7 +26,9 @@ export function CourseSidebar({
   lessons,
   selectedLessonId,
   onSelectCourse,
-  onSelectLesson
+  onSelectLesson,
+  onOpenCoursePlan,
+  coursePlanActive
 }: CourseSidebarProps) {
   const lessonsById = new Map(lessons.map((lesson) => [lesson.id, lesson]));
 
@@ -50,6 +54,13 @@ export function CourseSidebar({
             <span>{course.academicYear} учебный год</span>
           </div>
         ) : null}
+        <button
+          className={`button course-sidebar__plan-button ${coursePlanActive ? 'button-primary' : 'button-secondary'}`}
+          type="button"
+          onClick={onOpenCoursePlan}
+        >
+          План курса и источники
+        </button>
       </div>
 
       <div className="course-tree" aria-label="Разделы и уроки курса">

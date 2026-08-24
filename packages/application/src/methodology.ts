@@ -13,6 +13,7 @@ import {
 import type { Clock, IdGenerator, RequestContext } from '@tehkarta/ports';
 import { ApplicationError, type LessonRepository } from './index.js';
 import type { LessonInvalidation, LessonInvalidationRepository } from './lesson-governance.js';
+import type { ApprovedCourseLessonContext, CoursePlanningRepository } from './course-planning.js';
 
 export interface RecommendationOutcomeRef {
   fieldId: string;
@@ -43,6 +44,15 @@ export interface MethodologyRecommendationBundle {
     technology: { id: string; name: string; description: string; antiPatterns: string[] };
   };
   recommendations: MethodologyRecommendation[];
+  courseContext?: {
+    planRevision: number;
+    contextRevision: string;
+    previousLessonCount: number;
+    masteredConcepts: string[];
+    currentTopic?: string;
+    nextTopics: string[];
+    approvedSourceCount: number;
+  };
 }
 
 export interface MethodologyFeedbackRepository {
@@ -83,7 +93,12 @@ export function inferOutcomeKinds(value: string): OutcomeKind[] {
   return [...kinds];
 }
 
-function methodScore(method: MethodDefinition, kinds: OutcomeKind[], text: string): number {
+function methodScore(
+  method: MethodDefinition,
+  kinds: OutcomeKind[],
+  text: string,
+  courseContext?: ApprovedCourseLessonContext
+): number {
   let score = kinds.filter((kind) => method.compatibleOutcomeKinds.includes(kind)).length * 10;
   if (method.id === 'hypothesis-testing' && includesAny(text, ['причин', 'почему', 'объясн', 'фактор'])) score += 12;
   if (method.id === 'source-analysis' && includesAny(text, ['источник', 'документ', 'доказ', 'свидетельств'])) score += 10;
@@ -91,6 +106,11 @@ function methodScore(method: MethodDefinition, kinds: OutcomeKind[], text: strin
   if (method.id === 'statistical' && includesAny(text, ['данн', 'статист', 'числ', 'процент', 'таблиц', 'график'])) score += 12;
   if (method.id === 'cartographic' && includesAny(text, ['карт', 'простран', 'территор', 'маршрут'])) score += 12;
   if (method.id === 'modeling' && includesAny(text, ['модел', 'схем', 'систем'])) score += 12;
+  if (courseContext) {
+    if (method.id === 'source-analysis' && courseContext.sourceFragments.length > 0) score += 4;
+    if (method.id === 'comparative' && courseContext.previousLessons.length > 0) score += 3;
+    if (method.id === 'hypothesis-testing' && courseContext.previousLessons.length > 1) score += 2;
+  }
   return score;
 }
 
@@ -98,7 +118,8 @@ function recommendationId(
   pack: MethodologyPack,
   _lesson: Lesson,
   outcome: GovernedField<string>,
-  methodId: string
+  methodId: string,
+  courseContext?: ApprovedCourseLessonContext
 ): string {
   // Recommendation IDs are used as route parameters. Keep them comfortably below
   // Fastify's parameter-length guard while retaining stable identity across reads.
@@ -108,10 +129,18 @@ function recommendationId(
   const outcomeIdentity = outcome.fieldId.slice(-36).replace(/[^a-zA-Z0-9_.:-]+/g, '-');
   const packVersion = pack.version.replace(/[^a-zA-Z0-9_.:-]+/g, '-');
   const method = methodId.replace(/[^a-zA-Z0-9_.:-]+/g, '-');
-  return `mrec_${packVersion}_${outcomeIdentity}_r${outcome.meta.revision}_${method}`;
+  const courseRevision = courseContext
+    ? `_c${courseContext.contextRevision.replace(/[^a-zA-Z0-9_.:-]+/g, '-')}`
+    : '';
+  return `mrec_${packVersion}_${outcomeIdentity}_r${outcome.meta.revision}_${method}${courseRevision}`;
 }
 
-function rationaleFor(method: MethodDefinition, kinds: OutcomeKind[], problemQuestion?: string): string {
+function rationaleFor(
+  method: MethodDefinition,
+  kinds: OutcomeKind[],
+  problemQuestion?: string,
+  courseContext?: ApprovedCourseLessonContext
+): string {
   const kindCopy: Record<OutcomeKind, string> = {
     KNOWLEDGE: 'осмысленное предметное знание',
     CAUSAL_EXPLANATION: 'причинно-следственное объяснение',
@@ -126,12 +155,17 @@ function rationaleFor(method: MethodDefinition, kinds: OutcomeKind[], problemQue
   const questionNote = problemQuestion
     ? ` Метод согласуется с утверждённым проблемным вопросом «${problemQuestion}», но не подменяет результат урока.`
     : '';
-  return `Метод «${method.name}» напрямую поддерживает: ${targets}.${questionNote}`;
+  const mastered = courseContext?.previousLessons.flatMap((lesson) => lesson.concepts).slice(0, 5) ?? [];
+  const courseNote = courseContext
+    ? ` Рекомендация учитывает утверждённый план курса (редакция ${courseContext.planRevision})${mastered.length > 0 ? ` и уже освоенные понятия: ${mastered.join(', ')}` : ''}. Текущая тема: «${courseContext.currentLesson?.topic ?? 'не указана'}»${courseContext.nextLessons[0] ? `; следующий смысловой шаг — «${courseContext.nextLessons[0].topic}»` : ''}.`
+    : '';
+  return `Метод «${method.name}» напрямую поддерживает: ${targets}.${questionNote}${courseNote}`;
 }
 
 export function recommendMethodology(
   lesson: Lesson,
-  pack: MethodologyPack = researchMethodologyPackV1
+  pack: MethodologyPack = researchMethodologyPackV1,
+  courseContext?: ApprovedCourseLessonContext
 ): MethodologyRecommendationBundle {
   const approvedOutcomes = lesson.outcomes.filter((field) => approvedValue(field) !== undefined);
   const problemQuestion = approvedValue(lesson.problemQuestion);
@@ -142,7 +176,7 @@ export function recommendMethodology(
     const text = normalizeText(value);
     const kinds = inferOutcomeKinds(value);
     let ranked = pack.methods
-      .map((method) => ({ method, score: methodScore(method, kinds, text) }))
+      .map((method) => ({ method, score: methodScore(method, kinds, text, courseContext) }))
       .filter((entry) => entry.score > 0)
       .sort((a, b) => b.score - a.score || a.method.name.localeCompare(b.method.name, 'ru'));
 
@@ -176,7 +210,7 @@ export function recommendMethodology(
       }
 
       recommendations.push({
-        id: recommendationId(pack, lesson, outcome, method.id),
+        id: recommendationId(pack, lesson, outcome, method.id, courseContext),
         packRef: { id: pack.id, version: pack.version },
         technology: { id: pack.technology.id, name: pack.technology.name },
         technologyPhase: { id: phase.id, name: phase.title },
@@ -207,13 +241,16 @@ export function recommendMethodology(
           participantPattern: form.participantPattern,
           constraints: form.constraints
         })),
-        rationale: rationaleFor(method, kinds, problemQuestion),
+        rationale: rationaleFor(method, kinds, problemQuestion, courseContext),
         estimatedMinutes: method.typicalMinutes,
         constraintNotes
       });
     }
   }
 
+  const masteredConcepts = courseContext
+    ? [...new Set(courseContext.previousLessons.flatMap((lesson) => lesson.concepts))]
+    : [];
   return {
     pack: {
       id: pack.id,
@@ -226,7 +263,20 @@ export function recommendMethodology(
         antiPatterns: pack.technology.antiPatterns
       }
     },
-    recommendations
+    recommendations,
+    ...(courseContext
+      ? {
+          courseContext: {
+            planRevision: courseContext.planRevision,
+            contextRevision: courseContext.contextRevision,
+            previousLessonCount: courseContext.previousLessons.length,
+            masteredConcepts,
+            ...(courseContext.currentLesson ? { currentTopic: courseContext.currentLesson.topic } : {}),
+            nextTopics: courseContext.nextLessons.map((lesson) => lesson.topic),
+            approvedSourceCount: new Set(courseContext.sourceFragments.map((fragment) => fragment.sourceId)).size
+          }
+        }
+      : {})
   };
 }
 
@@ -289,13 +339,17 @@ export class ListMethodologyRecommendations {
   constructor(
     private readonly lessons: LessonRepository,
     private readonly feedback: MethodologyFeedbackRepository,
-    private readonly pack: MethodologyPack = researchMethodologyPackV1
+    private readonly pack: MethodologyPack = researchMethodologyPackV1,
+    private readonly planning?: CoursePlanningRepository
   ) {}
 
   async execute(context: RequestContext, lessonId: string): Promise<MethodologyRecommendationBundle> {
     const lesson = await this.lessons.getById(context, lessonId);
     if (!lesson) throw new ApplicationError('NOT_FOUND', `Lesson ${lessonId} was not found.`);
-    const bundle = recommendMethodology(lesson, this.pack);
+    const courseContext = this.planning
+      ? await this.planning.getApprovedLessonContext(context, lesson.courseId, lesson.id)
+      : null;
+    const bundle = recommendMethodology(lesson, this.pack, courseContext ?? undefined);
     const rejected = new Set(await this.feedback.listRejectedIds(context, lessonId));
     return { ...bundle, recommendations: bundle.recommendations.filter((item) => !rejected.has(item.id)) };
   }
@@ -350,6 +404,7 @@ export class ApplyMethodologyRecommendation {
       clock: Clock;
       ids: IdGenerator;
       pack?: MethodologyPack;
+      planning?: CoursePlanningRepository;
     }
   ) {}
 
@@ -366,7 +421,10 @@ export class ApplyMethodologyRecommendation {
     const lesson = await this.deps.lessons.getById(context, input.lessonId);
     if (!lesson) throw new ApplicationError('NOT_FOUND', `Lesson ${input.lessonId} was not found.`);
     const pack = this.deps.pack ?? researchMethodologyPackV1;
-    const current = recommendMethodology(lesson, pack).recommendations.find((item) => item.id === input.recommendationId);
+    const courseContext = this.deps.planning
+      ? await this.deps.planning.getApprovedLessonContext(context, lesson.courseId, lesson.id)
+      : null;
+    const current = recommendMethodology(lesson, pack, courseContext ?? undefined).recommendations.find((item) => item.id === input.recommendationId);
     if (!current) {
       throw new ApplicationError('DEPENDENCY_STALE', 'Methodology recommendation no longer matches the approved lesson state.');
     }
@@ -423,6 +481,7 @@ export class RejectMethodologyRecommendation {
       feedback: MethodologyFeedbackRepository;
       clock: Clock;
       pack?: MethodologyPack;
+      planning?: CoursePlanningRepository;
     }
   ) {}
 
@@ -430,7 +489,10 @@ export class RejectMethodologyRecommendation {
     const lesson = await this.deps.lessons.getById(context, input.lessonId);
     if (!lesson) throw new ApplicationError('NOT_FOUND', `Lesson ${input.lessonId} was not found.`);
     const pack = this.deps.pack ?? researchMethodologyPackV1;
-    const current = recommendMethodology(lesson, pack).recommendations.find((item) => item.id === input.recommendationId);
+    const courseContext = this.deps.planning
+      ? await this.deps.planning.getApprovedLessonContext(context, lesson.courseId, lesson.id)
+      : null;
+    const current = recommendMethodology(lesson, pack, courseContext ?? undefined).recommendations.find((item) => item.id === input.recommendationId);
     if (!current) throw new ApplicationError('DEPENDENCY_STALE', 'Methodology recommendation is stale or unknown.');
     await this.deps.feedback.reject(context, {
       lessonId: lesson.id,

@@ -53,6 +53,12 @@ Long operations return a job resource:
 }
 ```
 
+## Course planning and private sources
+
+Course planning is an explicit aggregate boundary. Draft plan writes require an expected revision; approval is a separate CSRF-protected command. Lesson generation fails closed when no approved plan exists.
+
+Course document upload is multipart and bounded by file count, size and type. Upload creates provenance and extracted fragments in `DRAFT`; a separate approval command makes those fragments eligible for AI/retrieval context. Client-provided filenames and MIME types are never treated as proof of origin or rights.
+
 ## Pagination
 
 Cursor pagination is the default for growing collections. Offset pagination is allowed only for small static/admin lists.

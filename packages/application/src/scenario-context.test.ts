@@ -4,6 +4,7 @@ import type { Course, GovernedField, Lesson } from '@tehkarta/domain';
 import type { RequestContext } from '@tehkarta/ports';
 import {
   BuildApprovedScenarioContext,
+  type CoursePlanningRepository,
   type CourseRepository,
   type LessonContentContextRepository,
   type LessonRepository
@@ -185,11 +186,44 @@ const contentContext: LessonContentContextRepository = {
   }
 };
 
+const coursePlanning: CoursePlanningRepository = {
+  async getApprovedLessonContext() {
+    return {
+      courseId: course.id,
+      planRevision: 3,
+      contextRevision: '3-source-fixture',
+      courseGoals: ['Понять переход к индустриальному обществу.'],
+      plannedOutcomes: ['Объяснять причинно-следственные связи.'],
+      contentSummary: 'Системная логика курса.',
+      previousLessons: [],
+      currentLesson: {
+        lessonId: lesson.id,
+        position: 1,
+        topic: lesson.title,
+        contentSummary: 'Индустриализация.',
+        concepts: ['индустриализация'],
+        dates: [],
+        personalities: [],
+        expectedOutcomes: [],
+        progressStatus: 'PLANNED'
+      },
+      nextLessons: [],
+      sourceFragments: []
+    };
+  },
+  async getSnapshot() { throw new Error('not used'); },
+  async saveDraft() { throw new Error('not used'); },
+  async approve() { throw new Error('not used'); },
+  async addSource() { throw new Error('not used'); },
+  async approveSource() { throw new Error('not used'); }
+};
+
 test('scenario context contains only approved pedagogy and teacher-included UMK content', async () => {
   const result = await new BuildApprovedScenarioContext({
     lessons,
     courses,
-    contentContext
+    contentContext,
+    coursePlanning
   }).execute(context, lesson.id);
 
   assert.equal(result.readiness.canGenerateScenario, true);
@@ -231,11 +265,21 @@ test('scenario generation is blocked while an approved UMK mapping remains undec
   const result = await new BuildApprovedScenarioContext({
     lessons,
     courses,
-    contentContext: incompleteContent
+    contentContext: incompleteContent,
+    coursePlanning
   }).execute(context, lesson.id);
 
   assert.equal(result.readiness.canGenerateScenario, false);
   assert.ok(result.readiness.missing.includes('CONTENT_SELECTION'));
   assert.equal(result.readiness.undecidedUmkCount, 1);
   assert.deepEqual(result.content.includedUmk.map((item) => item.mappingId), ['map-included']);
+});
+
+test('scenario generation fails closed without an approved course plan', async () => {
+  const result = await new BuildApprovedScenarioContext({ lessons, courses, contentContext })
+    .execute(context, lesson.id);
+
+  assert.equal(result.readiness.canGenerateScenario, false);
+  assert.ok(result.readiness.missing.includes('COURSE_PLAN'));
+  assert.equal(result.coursePlanning, undefined);
 });

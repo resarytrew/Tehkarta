@@ -13,6 +13,7 @@ export interface ContentContextPanelProps {
     item: LessonUmkEvidenceItem,
     decision: ContentSelectionDecision
   ): Promise<void>;
+  onNext(): void;
 }
 
 const requirementKindLabels: Record<LessonCurriculumRequirement['kind'], string> = {
@@ -75,7 +76,8 @@ export function ContentContextPanel({
   context,
   loading,
   busyMappingId,
-  onSetUmkDecision
+  onSetUmkDecision,
+  onNext
 }: ContentContextPanelProps) {
   if (loading && !context) {
     return <div className="content-context-loading">Загружаем нормативный и УМК-контекст…</div>;
@@ -285,6 +287,19 @@ export function ContentContextPanel({
           </p>
         </div>
       </section>
+
+      <div className="workflow-next-card">
+        <div>
+          <strong>Сценарий получит только выбранное содержание</strong>
+          <p>
+            Включено материалов УМК: {context.approvedContentSet.includedUmkMappingIds.length};
+            без решения: {context.approvedContentSet.undecidedUmkMappingIds.length}.
+          </p>
+        </div>
+        <button className="button button-primary" type="button" onClick={onNext}>
+          Перейти к сценарию →
+        </button>
+      </div>
     </section>
   );
 }

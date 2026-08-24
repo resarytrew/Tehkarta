@@ -22,6 +22,7 @@ export interface MethodologyConstructorProps {
     choice: RecommendationChoice
   ): Promise<void>;
   onRejectRecommendation(recommendation: MethodologyRecommendation): Promise<void>;
+  onNext(): void;
 }
 
 const outcomeKindLabels: Record<string, string> = {
@@ -56,7 +57,8 @@ export function MethodologyConstructor({
   addingOutcome,
   onAddOutcome,
   onUseRecommendation,
-  onRejectRecommendation
+  onRejectRecommendation,
+  onNext
 }: MethodologyConstructorProps) {
   const [outcomeDraft, setOutcomeDraft] = useState('');
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -437,6 +439,40 @@ export function MethodologyConstructor({
                   .join(', ') || '—'}
               </strong>
             </div>
+          </div>
+        </section>
+      ) : null}
+
+      <div className="workflow-next-card">
+        <div>
+          <strong>Следующий шаг использует утверждённые результаты и методику</strong>
+          <p>
+            Передаётся результатов: {approvedOutcomes.length}; методов:{' '}
+            {lesson.selectedMethods.filter((field) => field.meta.status === 'APPROVED').length}.
+          </p>
+        </div>
+        <button className="button button-primary" type="button" onClick={onNext}>
+          Перейти к содержанию УМК →
+        </button>
+      </div>
+
+      {bundle?.courseContext ? (
+        <section className="methodology-course-context">
+          <div>
+            <span className="eyebrow">Контекст всего курса · редакция {bundle.courseContext.planRevision}</span>
+            <h3>{bundle.courseContext.currentTopic ?? 'Текущий урок'}</h3>
+            <p>
+              Учтено предыдущих изученных уроков: {bundle.courseContext.previousLessonCount};
+              разрешённых документов: {bundle.courseContext.approvedSourceCount}.
+            </p>
+          </div>
+          <div>
+            <span>Уже освоено</span>
+            <strong>{bundle.courseContext.masteredConcepts.join(', ') || 'Пока не отмечено'}</strong>
+          </div>
+          <div>
+            <span>Следующие темы</span>
+            <strong>{bundle.courseContext.nextTopics.join(' → ') || 'Курс завершается'}</strong>
           </div>
         </section>
       ) : null}

@@ -54,6 +54,165 @@ export interface LessonAiProposal {
   dismissedAt?: string;
 }
 
+export type LessonDesignArtifactKind = 'SCENARIO' | 'MATERIALS';
+
+export interface LessonDesignArtifact<T extends Record<string, unknown> = Record<string, unknown>> {
+  id: string;
+  workspaceId: string;
+  lessonId: string;
+  kind: LessonDesignArtifactKind;
+  revision: number;
+  payload: T;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ScenarioStage {
+  id: string;
+  title: string;
+  minutes: number;
+  teacherAction: string;
+  studentAction: string;
+}
+
+export interface ScenarioPayload extends Record<string, unknown> {
+  stages: ScenarioStage[];
+  generatedFromLessonVersion?: number;
+  generatedFromCoursePlanRevision?: number;
+  generatedFromCourseContextRevision?: string;
+}
+
+export interface LessonMaterialItem {
+  id: string;
+  title: string;
+  purpose: string;
+  source?: string;
+  ready: boolean;
+}
+
+export interface MaterialsPayload extends Record<string, unknown> {
+  items: LessonMaterialItem[];
+  generatedFromLessonVersion?: number;
+  generatedFromScenarioRevision?: number;
+  generatedFromCoursePlanRevision?: number;
+  generatedFromCourseContextRevision?: string;
+}
+
+export type CoursePlanStatus = 'DRAFT' | 'APPROVED';
+export type LessonProgressStatus = 'PLANNED' | 'TAUGHT' | 'ASSESSED';
+export type CourseSourceRole =
+  | 'WORKING_PROGRAM'
+  | 'TEXTBOOK'
+  | 'METHOD_GUIDE'
+  | 'ATLAS'
+  | 'WORKBOOK'
+  | 'ASSESSMENT'
+  | 'OTHER';
+
+export interface CourseLessonProgression {
+  lessonId: string;
+  position: number;
+  topic: string;
+  contentSummary: string;
+  concepts: string[];
+  dates: string[];
+  personalities: string[];
+  expectedOutcomes: string[];
+  progressStatus: LessonProgressStatus;
+}
+
+export interface CoursePlan {
+  id: string;
+  workspaceId: string;
+  courseId: string;
+  revision: number;
+  status: CoursePlanStatus;
+  goals: string[];
+  plannedOutcomes: string[];
+  contentSummary: string;
+  lessons: CourseLessonProgression[];
+  approvedAt?: string;
+  approvedBy?: string;
+  updatedAt: string;
+}
+
+export interface CourseSourceDocument {
+  bindingId: string;
+  documentId: string;
+  title: string;
+  sourceRole: CourseSourceRole;
+  mimeType: string;
+  byteSize: number;
+  checksumSha256: string;
+  rightsBasis: string;
+  processingStatus: 'READY' | 'FAILED';
+  status: CoursePlanStatus;
+  pageCount?: number;
+  fragmentCount: number;
+  createdAt: string;
+}
+
+export interface ApprovedCourseLessonContext {
+  courseId: string;
+  planRevision: number;
+  contextRevision: string;
+  courseGoals: string[];
+  plannedOutcomes: string[];
+  contentSummary: string;
+  previousLessons: CourseLessonProgression[];
+  currentLesson?: CourseLessonProgression;
+  nextLessons: CourseLessonProgression[];
+  sourceFragments: Array<{
+    sourceId: string;
+    sourceTitle: string;
+    sourceRole: CourseSourceRole;
+    unitId: string;
+    ordinal: number;
+    pageStart?: number;
+    pageEnd?: number;
+    text: string;
+    contentHash: string;
+  }>;
+}
+
+export interface CoursePlanningSnapshot {
+  plan: CoursePlan | null;
+  sources: CourseSourceDocument[];
+  readiness: {
+    canDesignLessons: boolean;
+    missing: string[];
+    approvedSourceCount: number;
+  };
+}
+
+export interface ApprovedScenarioContext {
+  course: { id: string; subject: string; grade: number; academicYear: string; title: string };
+  section: { id: string; title: string; plannedHours: number };
+  lesson: {
+    id: string;
+    version: number;
+    title: string;
+    order: number;
+    durationMinutes: number;
+    designFreedom: { mode: string; contentFreedom: string; methodFreedom: string };
+  };
+  concept: { goal?: string; problemQuestion?: string; bigIdea?: string };
+  outcomes: string[];
+  methodology: { methods: string[]; techniques: string[]; forms: string[] };
+  content: {
+    mandatoryRp: LessonContentContext['curriculumRequirements'];
+    includedUmk: LessonContentContext['umkEvidence'];
+  };
+  coursePlanning?: ApprovedCourseLessonContext;
+  readiness: {
+    canGenerateScenario: boolean;
+    missing: string[];
+    undecidedUmkCount: number;
+    excludedUmkCount: number;
+  };
+}
+
 export interface CourseSummary {
   id: string;
   workspaceId: string;
@@ -144,6 +303,15 @@ export interface MethodologyRecommendationBundle {
     };
   };
   recommendations: MethodologyRecommendation[];
+  courseContext?: {
+    planRevision: number;
+    contextRevision: string;
+    previousLessonCount: number;
+    masteredConcepts: string[];
+    currentTopic?: string;
+    nextTopics: string[];
+    approvedSourceCount: number;
+  };
 }
 
 export type SourceAccessLevel = 'METADATA_ONLY' | 'PREVIEW' | 'FULL';

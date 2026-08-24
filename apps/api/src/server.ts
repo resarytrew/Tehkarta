@@ -3,11 +3,13 @@ import {
   createPostgresPool,
   databaseConfigFromEnv,
   PostgresCourseRepository,
+  PostgresCoursePlanningRepository,
   PostgresIdentityRepository,
   PostgresLessonAiProposalApplicationRepository,
   PostgresLessonAiProposalRepository,
   PostgresLessonContentContextRepository,
   PostgresLessonContentSelectionRepository,
+  PostgresLessonDesignArtifactRepository,
   PostgresLessonInvalidationRepository,
   PostgresLessonRepository,
   PostgresLoginThrottleRepository,
@@ -68,11 +70,13 @@ const passwordLogin = new PasswordLoginService({
 
 const proposalRepository = new PostgresLessonAiProposalRepository(pool);
 const proposalApplicationRepository = new PostgresLessonAiProposalApplicationRepository(pool);
+const coursePlanningRepository = new PostgresCoursePlanningRepository(pool);
 
 const app = await createApiApp(config, {
   sessions,
   passwordLogin,
   courses: new PostgresCourseRepository(pool),
+  coursePlanning: coursePlanningRepository,
   lessons: new PostgresLessonRepository(pool),
   invalidations: new PostgresLessonInvalidationRepository(pool),
   proposals: proposalRepository,
@@ -80,6 +84,7 @@ const app = await createApiApp(config, {
   methodologyFeedback: new PostgresMethodologyFeedbackRepository(pool),
   contentContext: new PostgresLessonContentContextRepository(pool),
   contentSelections: new PostgresLessonContentSelectionRepository(pool),
+  designArtifacts: new PostgresLessonDesignArtifactRepository(pool),
   authorization: new WorkspaceAuthorizationPolicy(),
   clock,
   ids

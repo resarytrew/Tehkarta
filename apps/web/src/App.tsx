@@ -2,20 +2,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ApiRequestError, TehkartaApiClient } from './api.js';
 import { ContentContextPanel } from './components/ContentContextPanel.js';
 import { CourseSidebar } from './components/CourseSidebar.js';
+import { CoursePlanningPanel } from './components/CoursePlanningPanel.js';
 import {
   GovernedFieldCard,
   type AiFieldAction
 } from './components/GovernedFieldCard.js';
 import { InvalidationPanel } from './components/InvalidationPanel.js';
 import { MethodologyConstructor } from './components/MethodologyConstructor.js';
+import { IntentOverview, LessonWorkflowPanel } from './components/LessonWorkflowPanels.js';
 import type {
   AiProposalAction,
   ContentSelectionDecision,
   CoreDecisionKey,
   Course,
   CourseSummary,
+  CoursePlanningSnapshot,
+  CourseLessonProgression,
+  CourseSourceRole,
   Lesson,
   LessonAiProposal,
+  LessonDesignArtifact,
+  LessonDesignArtifactKind,
+  ApprovedScenarioContext,
   LessonContentContext,
   LessonInvalidation,
   LessonSummary,
@@ -29,7 +37,18 @@ const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '';
 const WORKSPACE_STORAGE_KEY = 'tehkarta.workspaceId';
 const CSRF_STORAGE_KEY = 'tehkarta.csrfToken';
 
-type ActiveDesignStep = 2 | 3 | 4;
+type ActiveDesignStep = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+const stepContextLabels: Record<ActiveDesignStep, string> = {
+  1: 'Контекст замысла',
+  2: 'Контекст AI',
+  3: 'Контекст методики',
+  4: 'Контекст содержания',
+  5: 'Контекст сценария',
+  6: 'Контекст материалов',
+  7: 'Контекст экспертизы',
+  8: 'Контекст карты урока'
+};
 
 const decisionCopy: Record<CoreDecisionKey, { title: string; description: string }> = {
   goal: {
@@ -45,6 +64,12 @@ const decisionCopy: Record<CoreDecisionKey, { title: string; description: string
     description: 'Смысловой вывод, связывающий предметное содержание с целостным пониманием темы.'
   }
 };
+
+function coreDecisionsApproved(lesson: Lesson): boolean {
+  return (Object.keys(decisionCopy) as CoreDecisionKey[]).every(
+    (semanticKey) => lesson[semanticKey]?.meta.status === 'APPROVED'
+  );
+}
 
 const designModeLabels: Record<Lesson['designFreedom']['mode'], string> = {
   REGULATED: 'Регламентированный',
@@ -136,12 +161,18 @@ export function App({ onSessionEnded }: AppProps) {
   const [csrfToken] = useState(storedCsrfToken);
   const [courses, setCourses] = useState<CourseSummary[]>([]);
   const [course, setCourse] = useState<Course | null>(null);
+  const [coursePlanning, setCoursePlanning] = useState<CoursePlanningSnapshot | null>(null);
+  const [coursePlanningBusy, setCoursePlanningBusy] = useState<string | null>(null);
+  const [showCoursePlanning, setShowCoursePlanning] = useState(() => !querySelection().lessonId);
   const [lessons, setLessons] = useState<LessonSummary[]>([]);
   const [lesson, setLesson] = useState<Lesson | null>(null);
   const [invalidations, setInvalidations] = useState<LessonInvalidation[]>([]);
   const [proposals, setProposals] = useState<LessonAiProposal[]>([]);
   const [methodology, setMethodology] = useState<MethodologyRecommendationBundle | null>(null);
   const [contentContext, setContentContext] = useState<LessonContentContext | null>(null);
+  const [scenarioContext, setScenarioContext] = useState<ApprovedScenarioContext | null>(null);
+  const [designArtifacts, setDesignArtifacts] = useState<LessonDesignArtifact[]>([]);
+  const [artifactBusyKind, setArtifactBusyKind] = useState<LessonDesignArtifactKind | null>(null);
   const [methodologyLoading, setMethodologyLoading] = useState(false);
   const [methodologyBusyRecommendationId, setMethodologyBusyRecommendationId] = useState<string | null>(null);
   const [contentSelectionBusyMappingId, setContentSelectionBusyMappingId] = useState<string | null>(null);
@@ -191,22 +222,37 @@ export function App({ onSessionEnded }: AppProps) {
     [api]
   );
 
+  const refreshScenarioContext = useCallback(
+    async (lessonId: string) => {
+      if (!api) return;
+      setScenarioContext(await api.getScenarioContext(lessonId));
+    },
+    [api]
+  );
+
   const loadLesson = useCallback(
     async (lessonId: string) => {
       if (!api) return;
-      const [nextLesson, nextInvalidations, nextProposals, nextMethodology, nextContentContext] =
+      const [nextLesson, nextInvalidations, nextProposals, nextMethodology, nextContentContext, nextScenarioContext, nextArtifacts] =
         await Promise.all([
           api.getLesson(lessonId),
           api.listInvalidations(lessonId),
           api.listAiProposals(lessonId),
           api.getMethodologyRecommendations(lessonId),
-          api.getLessonContentContext(lessonId)
+          api.getLessonContentContext(lessonId),
+          api.getScenarioContext(lessonId),
+          api.listDesignArtifacts(lessonId)
         ]);
       setLesson(nextLesson);
+      setActiveStep((current) =>
+        current === 2 && coreDecisionsApproved(nextLesson) ? 3 : current
+      );
       setInvalidations(nextInvalidations);
       setProposals(nextProposals);
       setMethodology(nextMethodology);
       setContentContext(nextContentContext);
+      setScenarioContext(nextScenarioContext);
+      setDesignArtifacts(nextArtifacts);
       setLessons((current) =>
         current.map((summary) =>
           summary.id === nextLesson.id ? { ...summary, version: nextLesson.version } : summary
@@ -220,12 +266,14 @@ export function App({ onSessionEnded }: AppProps) {
   const loadCourse = useCallback(
     async (courseId: string, preferredLessonId?: string | null) => {
       if (!api) return;
-      const [nextCourse, nextLessons] = await Promise.all([
+      const [nextCourse, nextLessons, nextCoursePlanning] = await Promise.all([
         api.getCourse(courseId),
-        api.listLessons(courseId)
+        api.listLessons(courseId),
+        api.getCoursePlanning(courseId)
       ]);
       setCourse(nextCourse);
       setLessons(nextLessons);
+      setCoursePlanning(nextCoursePlanning);
 
       const selectedLessonId =
         preferredLessonId && nextLessons.some((item) => item.id === preferredLessonId)
@@ -240,6 +288,9 @@ export function App({ onSessionEnded }: AppProps) {
         setProposals([]);
         setMethodology(null);
         setContentContext(null);
+        setScenarioContext(null);
+        setDesignArtifacts([]);
+        setCoursePlanning(nextCoursePlanning);
         persistSelection(nextCourse.id, null);
       }
     },
@@ -267,12 +318,15 @@ export function App({ onSessionEnded }: AppProps) {
         await loadCourse(selectedCourse.id, requested.lessonId);
       } else {
         setCourse(null);
+        setCoursePlanning(null);
         setLessons([]);
         setLesson(null);
         setInvalidations([]);
         setProposals([]);
         setMethodology(null);
         setContentContext(null);
+        setScenarioContext(null);
+        setDesignArtifacts([]);
       }
     } catch (error) {
       if (!handleAuthenticationFailure(error)) setFatalError(errorMessage(error));
@@ -289,6 +343,7 @@ export function App({ onSessionEnded }: AppProps) {
     setLoading(true);
     setFatalError(null);
     setActiveStep(2);
+    setShowCoursePlanning(true);
     try {
       await loadCourse(courseId, null);
     } catch (error) {
@@ -299,11 +354,17 @@ export function App({ onSessionEnded }: AppProps) {
   }
 
   async function selectLesson(lessonId: string): Promise<void> {
+    if (!coursePlanning?.readiness.canDesignLessons) {
+      setShowCoursePlanning(true);
+      setNotice('Сначала сохраните и утвердите план курса и хотя бы один источник. После этого проектирование уроков станет доступно.');
+      return;
+    }
     setLoading(true);
     setFatalError(null);
     setActiveStep(2);
     try {
       await loadLesson(lessonId);
+      setShowCoursePlanning(false);
     } catch (error) {
       if (!handleAuthenticationFailure(error)) setFatalError(errorMessage(error));
     } finally {
@@ -313,6 +374,111 @@ export function App({ onSessionEnded }: AppProps) {
 
   async function refreshCurrentLesson(): Promise<void> {
     if (lesson) await loadLesson(lesson.id);
+  }
+
+  async function refreshCoursePlanning(): Promise<void> {
+    if (api && course) setCoursePlanning(await api.getCoursePlanning(course.id));
+  }
+
+  async function saveCoursePlan(input: {
+    expectedRevision: number;
+    goals: string[];
+    plannedOutcomes: string[];
+    contentSummary: string;
+    lessons: CourseLessonProgression[];
+  }): Promise<void> {
+    if (!api || !course) return;
+    setCoursePlanningBusy('save');
+    setNotice(null);
+    try {
+      setCoursePlanning(await api.saveCoursePlan({ courseId: course.id, ...input }));
+      setNotice('Черновик плана курса сохранён. Для использования в AI его нужно явно утвердить.');
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCoursePlanning();
+      setNotice(errorMessage(error));
+      throw error;
+    } finally {
+      setCoursePlanningBusy(null);
+    }
+  }
+
+  async function approveCurrentCoursePlan(): Promise<void> {
+    if (!api || !course || !coursePlanning?.plan) return;
+    setCoursePlanningBusy('approve');
+    setNotice(null);
+    try {
+      const approved = await api.approveCoursePlan(course.id, coursePlanning.plan.revision);
+      setCoursePlanning(approved);
+      setNotice('План курса утверждён и стал авторитетным контекстом для всех уроков курса.');
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCoursePlanning();
+      setNotice(errorMessage(error));
+      throw error;
+    } finally {
+      setCoursePlanningBusy(null);
+    }
+  }
+
+  async function uploadCourseSource(input: {
+    file: File;
+    title: string;
+    sourceRole: CourseSourceRole;
+    rightsBasis: string;
+  }): Promise<void> {
+    if (!api || !course) return;
+    setCoursePlanningBusy('upload');
+    setNotice(null);
+    try {
+      setCoursePlanning(await api.uploadCourseSource({ courseId: course.id, ...input }));
+      setNotice('Документ разобран и сохранён. Разрешите его использование, чтобы AI мог получать фрагменты.');
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      setNotice(errorMessage(error));
+      throw error;
+    } finally {
+      setCoursePlanningBusy(null);
+    }
+  }
+
+  async function approveCurrentCourseSource(bindingId: string): Promise<void> {
+    if (!api || !course) return;
+    setCoursePlanningBusy(bindingId);
+    setNotice(null);
+    try {
+      setCoursePlanning(await api.approveCourseSource(course.id, bindingId));
+      setNotice('Источник разрешён для использования в контексте AI этого курса.');
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      setNotice(errorMessage(error));
+      throw error;
+    } finally {
+      setCoursePlanningBusy(null);
+    }
+  }
+
+  async function navigateToStep(step: ActiveDesignStep): Promise<void> {
+    if (!api || !lesson || step < 4) {
+      setActiveStep(step);
+      return;
+    }
+    try {
+      const [freshLesson, freshScenarioContext, freshContentContext, freshArtifacts] =
+        await Promise.all([
+          api.getLesson(lesson.id),
+          api.getScenarioContext(lesson.id),
+          api.getLessonContentContext(lesson.id),
+          api.listDesignArtifacts(lesson.id)
+        ]);
+      setLesson(freshLesson);
+      setScenarioContext(freshScenarioContext);
+      setContentContext(freshContentContext);
+      setDesignArtifacts(freshArtifacts);
+      setActiveStep(step);
+    } catch (error) {
+      if (!handleAuthenticationFailure(error)) setNotice(errorMessage(error));
+    }
   }
 
   async function saveDraft(semanticKey: CoreDecisionKey, value: string): Promise<void> {
@@ -382,12 +548,16 @@ export function App({ onSessionEnded }: AppProps) {
 
       setLesson(workingLesson);
       setInvalidations(workingInvalidations);
+      if (coreDecisionsApproved(workingLesson)) setActiveStep(3);
       setLessons((current) =>
         current.map((summary) =>
           summary.id === workingLesson.id ? { ...summary, version: workingLesson.version } : summary
         )
       );
-      await refreshMethodology(workingLesson.id);
+      await Promise.all([
+        refreshMethodology(workingLesson.id),
+        refreshScenarioContext(workingLesson.id)
+      ]);
       setNotice('Решение утверждено педагогом и стало авторитетным контекстом для следующих этапов.');
     } catch (error) {
       if (handleAuthenticationFailure(error)) return;
@@ -442,6 +612,7 @@ export function App({ onSessionEnded }: AppProps) {
       });
       setLesson(response.data);
       setInvalidations(response.invalidations);
+      if (coreDecisionsApproved(response.data)) setActiveStep(3);
       setProposals((current) => putProposalFirst(current, response.proposal));
       setLessons((current) =>
         current.map((summary) =>
@@ -450,7 +621,10 @@ export function App({ onSessionEnded }: AppProps) {
             : summary
         )
       );
-      await refreshMethodology(response.data.id);
+      await Promise.all([
+        refreshMethodology(response.data.id),
+        refreshScenarioContext(response.data.id)
+      ]);
       setNotice(
         'AI-вариант явно применён педагогом. Новая формулировка сохранена как утверждённое решение педагога; происхождение AI осталось в истории ревизии.'
       );
@@ -480,7 +654,10 @@ export function App({ onSessionEnded }: AppProps) {
           summary.id === response.data.id ? { ...summary, version: response.data.version } : summary
         )
       );
-      await refreshMethodology(response.data.id);
+      await Promise.all([
+        refreshMethodology(response.data.id),
+        refreshScenarioContext(response.data.id)
+      ]);
       setNotice('Результат добавлен и сразу утверждён педагогом. Методический конструктор пересчитан по новой версии урока.');
     } catch (error) {
       if (handleAuthenticationFailure(error)) return;
@@ -488,6 +665,34 @@ export function App({ onSessionEnded }: AppProps) {
       throw new Error(errorMessage(error));
     } finally {
       setAddingOutcome(false);
+    }
+  }
+
+  async function saveDesignArtifact(
+    kind: LessonDesignArtifactKind,
+    payload: Record<string, unknown>
+  ): Promise<void> {
+    if (!api || !lesson) return;
+    setArtifactBusyKind(kind);
+    setNotice(null);
+    try {
+      const current = designArtifacts.find((item) => item.kind === kind);
+      const saved = await api.saveDesignArtifact({
+        lessonId: lesson.id,
+        kind,
+        expectedLessonVersion: lesson.version,
+        expectedRevision: current?.revision ?? 0,
+        payload
+      });
+      setDesignArtifacts((items) => [saved, ...items.filter((item) => item.kind !== kind)]);
+      setNotice(kind === 'SCENARIO' ? 'Сценарий сохранён.' : 'Комплект материалов сохранён.');
+    } catch (error) {
+      if (handleAuthenticationFailure(error)) return;
+      if (error instanceof ApiRequestError && error.status === 409) await refreshCurrentLesson();
+      setNotice(errorMessage(error));
+      throw new Error(errorMessage(error));
+    } finally {
+      setArtifactBusyKind(null);
     }
   }
 
@@ -513,7 +718,10 @@ export function App({ onSessionEnded }: AppProps) {
           summary.id === response.data.id ? { ...summary, version: response.data.version } : summary
         )
       );
-      await refreshMethodology(response.data.id);
+      await Promise.all([
+        refreshMethodology(response.data.id),
+        refreshScenarioContext(response.data.id)
+      ]);
       setNotice(
         `Метод «${recommendation.method.name}» применён как явное решение педагога. Метод, приёмы и форма сохранены со статусом APPROVED.`
       );
@@ -572,6 +780,7 @@ export function App({ onSessionEnded }: AppProps) {
             : summary
         )
       );
+      await refreshScenarioContext(response.data.id);
       setNotice(
         response.changed
           ? decision === 'INCLUDED'
@@ -659,16 +868,31 @@ export function App({ onSessionEnded }: AppProps) {
           selectedCourseId={course?.id ?? null}
           course={course}
           lessons={lessons}
-          selectedLessonId={lesson?.id ?? null}
+          selectedLessonId={showCoursePlanning ? null : lesson?.id ?? null}
           onSelectCourse={(courseId) => void selectCourse(courseId)}
           onSelectLesson={(lessonId) => void selectLesson(lessonId)}
+          onOpenCoursePlan={() => setShowCoursePlanning(true)}
+          coursePlanActive={showCoursePlanning}
         />
 
         <main className="lesson-workspace">
           {loading ? <div className="loading-bar" aria-label="Загрузка" /> : null}
           {fatalError ? <div className="page-error">{fatalError}</div> : null}
 
-          {lesson ? (
+          {showCoursePlanning && course && coursePlanning ? (
+            <CoursePlanningPanel
+              key={`${course.id}:${coursePlanning.plan?.revision ?? 0}:${coursePlanning.sources.length}`}
+              course={course}
+              lessons={lessons}
+              snapshot={coursePlanning}
+              busyAction={coursePlanningBusy}
+              onSave={saveCoursePlan}
+              onApprove={approveCurrentCoursePlan}
+              onUpload={uploadCourseSource}
+              onApproveSource={approveCurrentCourseSource}
+              onOpenLesson={(lessonId) => void selectLesson(lessonId)}
+            />
+          ) : lesson ? (
             <>
               <div className="lesson-heading">
                 <div>
@@ -704,7 +928,7 @@ export function App({ onSessionEnded }: AppProps) {
                   ['08', 'Карта урока']
                 ].map(([number, label], index) => {
                   const stepNumber = index + 1;
-                  const available = stepNumber === 2 || stepNumber === 3 || stepNumber === 4;
+                  const available = true;
                   const current = activeStep === stepNumber;
                   return (
                     <button
@@ -712,15 +936,7 @@ export function App({ onSessionEnded }: AppProps) {
                       key={number}
                       className={`design-step ${available ? 'is-available' : ''} ${current ? 'is-current' : ''}`}
                       onClick={() => {
-                        if (stepNumber === 2 || stepNumber === 3 || stepNumber === 4) {
-                          setActiveStep(stepNumber);
-                          return;
-                        }
-                        setNotice(
-                          stepNumber < 2
-                            ? 'Базовый замысел уже представлен утверждаемыми решениями урока. Отдельный экран будет подключён позже.'
-                            : `Раздел «${label}» будет подключён после завершения текущего педагогического слоя.`
-                        );
+                        void navigateToStep(stepNumber as ActiveDesignStep);
                       }}
                     >
                       <span>{number}</span>
@@ -730,9 +946,19 @@ export function App({ onSessionEnded }: AppProps) {
                 })}
               </nav>
 
-              <div className={`workspace-grid ${activeStep === 3 || activeStep === 4 ? 'workspace-grid--methodology' : ''}`}>
+              <div className={`workspace-grid ${activeStep !== 2 ? 'workspace-grid--methodology' : ''}`}>
                 <section className="workspace-main-column">
-                  {activeStep === 2 ? (
+                  {activeStep === 1 ? (
+                    <IntentOverview
+                      lesson={lesson}
+                      course={course}
+                      context={scenarioContext}
+                      artifacts={designArtifacts}
+                      busyKind={artifactBusyKind}
+                      onSave={saveDesignArtifact}
+                      onNavigate={(step) => void navigateToStep(step as ActiveDesignStep)}
+                    />
+                  ) : activeStep === 2 ? (
                     <>
                       <div className="section-intro">
                         <span className="eyebrow">Шаг 2 · педагогические решения</span>
@@ -771,6 +997,25 @@ export function App({ onSessionEnded }: AppProps) {
                           />
                         );
                       })}
+                      <div className="workflow-next-card">
+                        <div>
+                          <strong>Следующий шаг использует только утверждённые решения</strong>
+                          <p>
+                            Утверждено смысловых полей:{' '}
+                            {[lesson.goal, lesson.problemQuestion, lesson.bigIdea].filter(
+                              (field) => field?.meta.status === 'APPROVED'
+                            ).length}
+                            /3.
+                          </p>
+                        </div>
+                        <button
+                          className="button button-primary"
+                          type="button"
+                          onClick={() => void navigateToStep(3)}
+                        >
+                          Перейти к методическому конструктору →
+                        </button>
+                      </div>
                     </>
                   ) : activeStep === 3 ? (
                     <MethodologyConstructor
@@ -782,13 +1027,26 @@ export function App({ onSessionEnded }: AppProps) {
                       onAddOutcome={addApprovedOutcome}
                       onUseRecommendation={useMethodologyRecommendation}
                       onRejectRecommendation={rejectMethodologyRecommendation}
+                      onNext={() => void navigateToStep(4)}
                     />
-                  ) : (
+                  ) : activeStep === 4 ? (
                     <ContentContextPanel
                       context={contentContext}
                       loading={loading}
                       busyMappingId={contentSelectionBusyMappingId}
                       onSetUmkDecision={setUmkContentDecision}
+                      onNext={() => void navigateToStep(5)}
+                    />
+                  ) : (
+                    <LessonWorkflowPanel
+                      step={activeStep}
+                      lesson={lesson}
+                      course={course}
+                      context={scenarioContext}
+                      artifacts={designArtifacts}
+                      busyKind={artifactBusyKind}
+                      onSave={saveDesignArtifact}
+                      onNavigate={(step) => void navigateToStep(step as ActiveDesignStep)}
                     />
                   )}
                 </section>
@@ -805,11 +1063,7 @@ export function App({ onSessionEnded }: AppProps) {
 
                   <div className="context-panel">
                     <span className="eyebrow">
-                      {activeStep === 2
-                        ? 'Контекст AI'
-                        : activeStep === 3
-                          ? 'Контекст методики'
-                          : 'Контекст содержания'}
+                      {stepContextLabels[activeStep]}
                     </span>
                     <h3>Что уже зафиксировано</h3>
                     <div className="context-list">

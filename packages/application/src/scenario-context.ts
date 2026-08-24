@@ -10,6 +10,7 @@ import type {
   LessonCurriculumRequirement,
   LessonUmkEvidenceItem
 } from './content-context.js';
+import type { ApprovedCourseLessonContext, CoursePlanningRepository } from './course-planning.js';
 
 export type ScenarioPrerequisiteCode =
   | 'GOAL'
@@ -18,7 +19,8 @@ export type ScenarioPrerequisiteCode =
   | 'METHOD'
   | 'CURRICULUM_CORE'
   | 'UMK_MAPPING'
-  | 'CONTENT_SELECTION';
+  | 'CONTENT_SELECTION'
+  | 'COURSE_PLAN';
 
 export interface ApprovedScenarioContext {
   course: {
@@ -60,6 +62,7 @@ export interface ApprovedScenarioContext {
     mandatoryRp: LessonCurriculumRequirement[];
     includedUmk: LessonUmkEvidenceItem[];
   };
+  coursePlanning?: ApprovedCourseLessonContext;
   readiness: {
     canGenerateScenario: boolean;
     missing: ScenarioPrerequisiteCode[];
@@ -72,6 +75,7 @@ export interface ApprovedScenarioContextDependencies {
   lessons: LessonRepository;
   courses: CourseRepository;
   contentContext: LessonContentContextRepository;
+  coursePlanning?: CoursePlanningRepository;
 }
 
 function approvedList(fields: ReadonlyArray<{ value: string; meta: { status: string } }>): string[] {
@@ -90,9 +94,12 @@ export class BuildApprovedScenarioContext {
       throw new ApplicationError('NOT_FOUND', `Lesson ${lessonId} was not found.`);
     }
 
-    const [course, contentContext] = await Promise.all([
+    const [course, contentContext, coursePlanning] = await Promise.all([
       this.deps.courses.getById(context, lesson.courseId),
-      this.deps.contentContext.getForLesson(context, lesson.id)
+      this.deps.contentContext.getForLesson(context, lesson.id),
+      this.deps.coursePlanning
+        ? this.deps.coursePlanning.getApprovedLessonContext(context, lesson.courseId, lesson.id)
+        : Promise.resolve(null)
     ]);
     if (!course || !contentContext) {
       throw new ApplicationError(
@@ -121,6 +128,7 @@ export class BuildApprovedScenarioContext {
     const includedUmk = contentContext.umkEvidence.filter((item) => includedIds.has(item.mappingId));
 
     const missing: ScenarioPrerequisiteCode[] = [];
+    if (!coursePlanning) missing.push('COURSE_PLAN');
     if (!goal) missing.push('GOAL');
     if (!problemQuestion) missing.push('PROBLEM_QUESTION');
     if (outcomes.length === 0) missing.push('OUTCOME');
@@ -167,6 +175,7 @@ export class BuildApprovedScenarioContext {
         mandatoryRp,
         includedUmk
       },
+      ...(coursePlanning ? { coursePlanning } : {}),
       readiness: {
         canGenerateScenario: missing.length === 0,
         missing,

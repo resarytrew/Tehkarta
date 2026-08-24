@@ -168,8 +168,8 @@ export class PostgresAsyncJobProcessingRepository implements AsyncJobProcessingR
       `UPDATE async_jobs
        SET status = 'FAILED', error_json = $3::jsonb,
            available_at = $4,
-           finished_at = CASE WHEN $5 THEN $6 ELSE NULL END,
-           updated_at = $6, locked_at = NULL, locked_by = NULL
+           finished_at = CASE WHEN $5 THEN $6::timestamptz ELSE NULL END,
+           updated_at = $6::timestamptz, locked_at = NULL, locked_by = NULL
        WHERE id = $1 AND status = 'RUNNING' AND locked_by = $2`,
       [
         input.jobId,

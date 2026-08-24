@@ -3,7 +3,7 @@
 **Версия документа:** 2.0  
 **Версия платформы:** 0.1.0 vertical-slice foundation  
 **Последнее обновление:** 24 августа 2026 г.  
-**Статус:** активная разработка · teacher workflow, AI proposal execution и Methodical Constructor v1 реализованы  
+**Статус:** активная разработка · системное планирование курса, source ingestion, teacher workflow, AI proposal execution и Methodical Constructor v1 реализованы
 **Целевая инфраструктура:** Yandex Cloud
 
 > Tehkarta — AI-среда совместного педагогического проектирования образовательного процесса: **курс → раздел → урок → этап → задания и материалы**.
@@ -20,6 +20,9 @@ Tehkarta проектируется не как генератор «готов�
 
 ```text
 Предмет
+→ загрузка рабочей программы / учебника / пособий
+→ утверждаемый план курса и прогрессия результатов
+→ память освоенного на предыдущих уроках
 → педагогический профиль
 → параметры урока
 → цель и результаты
@@ -242,6 +245,10 @@ Tehkarta/
 Ключевые сущности:
 
 - `Course`;
+- `CoursePlan`;
+- `CourseLessonProgression`;
+- `CourseSourceDocument`;
+- `ApprovedCourseLessonContext`;
 - `Section`;
 - `Lesson`;
 - `GovernedField<T>`;
@@ -503,7 +510,7 @@ Pack содержит:
 
 ### 11.3 Recommendation engine
 
-Baseline engine deterministic/explainable и использует только `APPROVED outcomes`.
+Baseline engine deterministic/explainable и использует `APPROVED outcomes`, утверждённый план курса, освоенные понятия предыдущих уроков, текущую/следующие темы и доступность разрешённых источников.
 
 Примеры rule-based compatibility:
 
@@ -604,6 +611,7 @@ Tenant-sensitive repositories фильтруют по `workspace_id`; URL/id с�
 - proposal dismissal/history;
 - AI invocation proposal trace;
 - methodology feedback.
+- course plan revisions, per-lesson progression, private source bindings и local development blob persistence.
 
 Критические изменения должны добавляться новой migration.
 
@@ -628,6 +636,18 @@ GET /api/v1/courses/:courseId/lessons
 GET /api/v1/lessons/:lessonId
 GET /api/v1/lessons/:lessonId/invalidations
 ```
+
+### Course planning / sources
+
+```text
+GET  /api/v1/courses/:courseId/planning-context
+PUT  /api/v1/courses/:courseId/plan
+POST /api/v1/courses/:courseId/plan/approve
+POST /api/v1/courses/:courseId/sources
+POST /api/v1/courses/:courseId/sources/:bindingId/approve
+```
+
+План и источник не становятся AI-контекстом автоматически: черновик плана и загруженный документ требуют отдельных явных действий педагога. PDF/TXT/Markdown разбираются на bounded fragments с SHA-256 provenance. Оригиналы в локальной разработке сохраняются приватно в PostgreSQL; production target переносит binary payload в private Object Storage без изменения stable `source_document_id`.
 
 ### Governed core decisions
 
@@ -744,9 +764,9 @@ AI provider
 
 ---
 
-## 17. RP / UMK content architecture — следующий продуктовый слой
+## 17. RP / UMK content architecture
 
-Целевой подход — централизованные versioned Content Packs, а не отдельная ручная загрузка каждого учителя.
+Платформа поддерживает два совместимых контура: централизованные versioned Content Packs и приватные документы конкретного курса, загруженные педагогом с явным rights basis и разрешением на использование AI.
 
 Каждый course должен быть связан с:
 
@@ -871,13 +891,13 @@ Creative mode не отменяет:
 
 ## 21. Ближайший roadmap
 
-### Next: Content / RP / UMK
+### Next: развитие Content / RP / UMK
 
-1. repository + ingestion contracts для централизованных Content Packs;
-2. semantic content elements + provenance;
-3. RP requirement coverage;
-4. approved methodology/outcomes → content selection;
-5. реальный UI шага `04 Содержание УМК`.
+1. OCR для сканированных PDF и DOCX ingestion;
+2. semantic retrieval/reranking вместо bounded sequential fragment selection;
+3. автоматическое предложение структуры курса из РП как отдельный AI proposal с explicit Apply;
+4. матрица покрытия результатов и требований по всем урокам;
+5. production Object Storage adapter для оригиналов документов.
 
 ### Затем
 
@@ -889,8 +909,6 @@ Creative mode не отменяет:
 
 ### Позже
 
-- course memory;
-- outcome progression across lessons;
 - semantic RAG at scale;
 - content importer runtime;
 - organization-level administration;

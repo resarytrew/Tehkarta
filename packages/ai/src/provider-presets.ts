@@ -49,6 +49,7 @@ export function createOpenRouterProvider(
     baseUrl: config.baseUrl ?? OPENROUTER_BASE_URL,
     apiKey: config.apiKey,
     model: config.model,
+    structuredOutputMode: 'json-object',
     ...(config.timeoutMs !== undefined ? { timeoutMs: config.timeoutMs } : {}),
     ...(config.maxTokens !== undefined ? { maxTokens: config.maxTokens } : {}),
     ...(config.embeddingModel ? { embeddingModel: config.embeddingModel } : {}),

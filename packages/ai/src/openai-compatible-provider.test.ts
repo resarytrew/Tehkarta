@@ -72,6 +72,43 @@ test('structured generation preserves usage and cost metadata', async () => {
   assert.equal(result.generated.requestId, 'req-success');
 });
 
+test('structured generation sends reasoning effort and accepts a fenced JSON object', async () => {
+  let requestBody: Record<string, unknown> | undefined;
+  globalThis.fetch = async (_input, init) => {
+    requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(
+      JSON.stringify({ choices: [{ message: { content: '```json\n{"ok":true}\n```' } }] }),
+      { status: 200 }
+    );
+  };
+
+  const provider = new OpenAICompatibleChatProvider({
+    name: 'openrouter',
+    baseUrl: 'https://example.invalid/v1',
+    apiKey: 'test-key',
+    model: 'test/model',
+    structuredOutputMode: 'json-object'
+  });
+  const result = await provider.generateStructuredResult<{ ok: boolean }>({
+    system: 'system',
+    prompt: 'prompt',
+    reasoningEffort: 'medium',
+    responseSchemaName: 'test',
+    responseSchema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['ok'],
+      properties: { ok: { type: 'boolean' } }
+    }
+  });
+
+  assert.deepEqual(result.value, { ok: true });
+  assert.deepEqual(requestBody?.reasoning, { effort: 'medium', exclude: true });
+  assert.deepEqual(requestBody?.response_format, { type: 'json_object' });
+  const messages = requestBody?.messages as Array<{ role: string; content: string }>;
+  assert.match(messages[1]?.content ?? '', /Match this JSON Schema exactly/);
+});
+
 test('invalid structured JSON is terminal INVALID_RESPONSE', async () => {
   globalThis.fetch = async () =>
     new Response(JSON.stringify({ choices: [{ message: { content: 'not-json' } }] }), {

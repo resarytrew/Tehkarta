@@ -17,6 +17,7 @@ import {
   PostgresAiInvocationRepository,
   PostgresAsyncJobProcessingRepository,
   PostgresCourseRepository,
+  PostgresCoursePlanningRepository,
   PostgresLessonAiProposalRepository,
   PostgresLessonRepository
 } from '@tehkarta/database';
@@ -93,7 +94,7 @@ export function createWorkerApplication(
       task: 'VARIANTS',
       provider: config.ai.routes.variants.provider,
       model: config.ai.routes.variants.model,
-      reasoningEffort: 'medium'
+      reasoningEffort: 'low'
     },
     {
       task: 'REFORMULATE',
@@ -113,12 +114,14 @@ export function createWorkerApplication(
   const clock: Clock = { now: () => new Date() };
   const lessons = new PostgresLessonRepository(pool);
   const courses = new PostgresCourseRepository(pool);
+  const coursePlanning = new PostgresCoursePlanningRepository(pool);
   const proposals = new PostgresLessonAiProposalRepository(pool);
   const jobs = new PostgresAsyncJobProcessingRepository(pool);
   const invocations = new PostgresAiInvocationRepository(pool);
   const processor = new ProcessLessonDecisionProposal({
     lessons,
     courses,
+    coursePlanning,
     proposals,
     generator,
     invocations,
