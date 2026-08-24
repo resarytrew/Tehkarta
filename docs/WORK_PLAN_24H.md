@@ -38,21 +38,19 @@
 
 # P0 — ЗАВЕРШИТЬ AI WORKER CORE
 
-## [ ] 1. Довести PR #12 до зелёного состояния
+## [x] 1. Довести PR #12 до зелёного состояния
 
-**Текущий контекст:** `feature/ai-proposal-worker-core`, PR #12 `Build safe AI proposal worker core`.
+**Результат:** worker core доведён до зелёного CI на commit `96e7b78776cc598f518374ee284c8d0072b0cefe`.
 
-Задачи:
+Выполнено:
 
-- проверить актуальный head PR и CI;
-- разобрать текущий `db:smoke` failure по фактическим логам;
-- исправить очередь/время/lease/state-transition без ослабления теста;
-- убедиться, что `typecheck`, `build`, `test`, `db:smoke`, Docker image и Terraform проходят;
-- синхронизировать ветку с актуальным `main`, не потеряв `RULS.md`, `TECHNICAL_DOCUMENTATION.md` и этот план;
-- перевести PR из draft в ready;
-- merge только при полностью зелёном CI.
+- исправлен TypeScript contract в `packages/ai/src/routing.ts` (`ReadonlyArray` вместо недопустимого `readonly Array<...>`);
+- `typecheck`, `build`, `test`, `db:smoke` проходят;
+- Docker production API image собирается и проходит non-root runtime assertion;
+- Terraform `fmt/init/validate` проходит;
+- smoke проверяет `QUEUED → RUNNING → READY`, stale handling и сохранение approved teacher decision.
 
-**Definition of Done:** worker безопасно доводит `QUEUED → RUNNING → READY`, stale work не вызывает модель, approved teacher decision остаётся неизменным.
+**PR:** #12 `Build safe AI proposal worker core` — готов к merge после перевода из draft.
 
 ---
 
@@ -345,58 +343,4 @@ Docker worker build (если уже реализован)
 - не строить микросервисы;
 - не делать массовый импорт всех предметов;
 - не заниматься декоративным редизайном раньше рабочего vertical slice;
-- не внедрять сложный Redis/Valkey слой без измеренной потребности;
-- не добавлять внешние AI-фичи, которые обходят teacher-authority model.
-
----
-
-# Критерий успеха к концу суток
-
-К концу этого рабочего окна платформа должна максимально приблизиться к следующему доказуемому состоянию:
-
-```text
-ПЕДАГОГ
-  ↓
-утверждённое решение
-  ↓
-«Улучшить / Варианты»
-  ↓
-асинхронный безопасный worker
-  ↓
-реальный AI provider
-  ↓
-отдельные AI candidates
-  ↓
-педагог сравнивает
-  ↓
-явно применяет
-  ↓
-новая teacher-authoritative revision
-  ↓
-dependency invalidation
-  ↓
-полный audit/provenance
-```
-
-Приоритет качества: **корректность состояния и доверие педагога важнее количества экранов и функций.**
-
----
-
-## Журнал выполнения
-
-| Блок | Статус | PR / commit | Примечание |
-|---|---|---|---|
-| 1. PR #12 worker core | ⏳ | PR #12 | Первый блок следующей команды `продолжай` |
-| 2. Proposal review UI | ⬜ | — | — |
-| 3. Apply candidate | ⬜ | — | — |
-| 4. Dismiss/history | ⬜ | — | — |
-| 5. apps/worker | ⬜ | — | — |
-| 6. AI providers | ⬜ | — | — |
-| 7. AI trace/evals | ⬜ | — | — |
-| 8. Local E2E | ⬜ | — | — |
-| 9. Integration tests | ⬜ | — | — |
-| 10. Yandex Terraform | ⬜ | — | — |
-| 11. Runtime identities | ⬜ | — | — |
-| 12. CI/CD skeleton | ⬜ | — | — |
-| 13–15. Methodology | ⬜ | — | Только после P0–P4 |
-| 16. Docs checkpoint | ⬜ | — | Конец окна |
+- не менять архитектурные инварианты ради краткосрочного удобства.
