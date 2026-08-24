@@ -3,9 +3,9 @@ locals {
   name_prefix = "${var.project_name}-${local.environment}"
 
   labels = {
-    project      = var.project_name
-    environment  = local.environment
-    managed_by   = "terraform"
+    project     = var.project_name
+    environment = local.environment
+    managed_by  = "terraform"
   }
 
   content_bucket_name   = lower("${local.name_prefix}-content-${var.folder_id}")
@@ -131,15 +131,15 @@ module "worker" {
   count  = var.enable_worker_runtime ? 1 : 0
   source = "../../modules/serverless-worker"
 
-  folder_id                   = var.folder_id
-  name                        = "${local.name_prefix}-worker"
-  service_account_name        = "${local.name_prefix}-worker-runtime"
+  folder_id                    = var.folder_id
+  name                         = "${local.name_prefix}-worker"
+  service_account_name         = "${local.name_prefix}-worker-runtime"
   trigger_service_account_name = "${local.name_prefix}-worker-trigger"
-  network_id                  = module.network.network_id
-  image_url                   = "${module.registry.worker_repository_path}:${var.worker_image_tag}"
-  image_digest                = var.worker_image_digest
-  timer_cron_expression       = var.worker_timer_cron_expression
-  labels                      = local.labels
+  network_id                   = module.network.network_id
+  image_url                    = "${module.registry.worker_repository_path}:${var.worker_image_tag}"
+  image_digest                 = var.worker_image_digest
+  timer_cron_expression        = var.worker_timer_cron_expression
+  labels                       = local.labels
 
   environment_variables = {
     DB_HOST                   = module.postgres.host_fqdn
