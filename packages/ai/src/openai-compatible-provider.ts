@@ -126,6 +126,24 @@ function httpFailure(
   );
 }
 
+function invalidJsonFailure(
+  provider: string,
+  model: string,
+  latencyMs: number,
+  remoteRequestId: string | undefined,
+  cause: unknown
+): AIProviderError {
+  return new AIProviderError('AI provider returned malformed JSON.', {
+    provider,
+    model,
+    errorClass: 'INVALID_RESPONSE',
+    retryable: false,
+    latencyMs,
+    ...(remoteRequestId ? { requestId: remoteRequestId } : {}),
+    cause
+  });
+}
+
 function transportFailure(
   provider: string,
   model: string,
@@ -213,10 +231,24 @@ export class OpenAICompatibleChatProvider implements AIProvider {
       const latencyMs = Date.now() - started;
       if (!response.ok) throw httpFailure(this.name, this.config.model, response, latencyMs);
 
+      const remoteRequestId = requestId(response.headers);
+      let payload: ChatCompletionResponse;
+      try {
+        payload = (await response.json()) as ChatCompletionResponse;
+      } catch (error) {
+        throw invalidJsonFailure(
+          this.name,
+          this.config.model,
+          latencyMs,
+          remoteRequestId,
+          error
+        );
+      }
+
       return {
-        response: (await response.json()) as ChatCompletionResponse,
+        response: payload,
         latencyMs,
-        ...(requestId(response.headers) ? { requestId: requestId(response.headers)! } : {})
+        ...(remoteRequestId ? { requestId: remoteRequestId } : {})
       };
     } catch (error) {
       throw transportFailure(this.name, this.config.model, error, Date.now() - started);
@@ -288,31 +320,40 @@ export class OpenAICompatibleChatProvider implements AIProvider {
     }
     if (texts.length === 0) return [];
 
+    const embeddingModel = this.config.embeddingModel;
     const started = Date.now();
     try {
       const response = await fetch(`${this.baseUrl}/embeddings`, {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify({
-          model: this.config.embeddingModel,
+          model: embeddingModel,
           input: texts
         }),
         signal: AbortSignal.timeout(this.timeoutMs)
       });
       const latencyMs = Date.now() - started;
       if (!response.ok) {
-        throw httpFailure(this.name, this.config.embeddingModel, response, latencyMs);
+        throw httpFailure(this.name, embeddingModel, response, latencyMs);
       }
 
-      const payload = (await response.json()) as EmbeddingsResponse;
+      const remoteRequestId = requestId(response.headers);
+      let payload: EmbeddingsResponse;
+      try {
+        payload = (await response.json()) as EmbeddingsResponse;
+      } catch (error) {
+        throw invalidJsonFailure(this.name, embeddingModel, latencyMs, remoteRequestId, error);
+      }
+
       const rows = payload.data;
       if (!Array.isArray(rows) || rows.length !== texts.length) {
         throw new AIProviderError('AI embedding provider returned an unexpected vector count.', {
           provider: this.name,
-          model: this.config.embeddingModel,
+          model: embeddingModel,
           errorClass: 'INVALID_RESPONSE',
           retryable: false,
-          latencyMs
+          latencyMs,
+          ...(remoteRequestId ? { requestId: remoteRequestId } : {})
         });
       }
 
@@ -327,21 +368,17 @@ export class OpenAICompatibleChatProvider implements AIProvider {
           ) {
             throw new AIProviderError(`AI embedding ${index + 1} is not a numeric vector.`, {
               provider: this.name,
-              model: this.config.embeddingModel!,
+              model: embeddingModel,
               errorClass: 'INVALID_RESPONSE',
               retryable: false,
-              latencyMs
+              latencyMs,
+              ...(remoteRequestId ? { requestId: remoteRequestId } : {})
             });
           }
           return row.embedding as number[];
         });
     } catch (error) {
-      throw transportFailure(
-        this.name,
-        this.config.embeddingModel,
-        error,
-        Date.now() - started
-      );
+      throw transportFailure(this.name, embeddingModel, error, Date.now() - started);
     }
   }
 }
