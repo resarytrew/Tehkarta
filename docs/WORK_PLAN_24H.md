@@ -109,19 +109,26 @@
 
 # P2 — PRODUCTION AI EXECUTION
 
-## [ ] 5. Создать настоящий `apps/worker`
+## [x] 5. Создать настоящий `apps/worker`
 
-```text
-apps/worker
-  → claim async job
-  → build approved context
-  → route model
-  → invoke provider
-  → validate structured output
-  → persist result
-```
+**Результат:** завершено и влито в `main`.
 
-Требования: graceful shutdown, worker identity, poll/one-shot mode, lease recovery, bounded retries, structured logging без чувствительных payloads, health/readiness.
+- PR #16 `Add production AI worker runtime`;
+- green head: `8342d2ceaf9860cbf59a811e414087b3f4fe9eda`;
+- squash merge: `9f88f54906c143814b5203bea0c9ea32c2c58996`;
+- создан отдельный runtime `apps/worker`, который композиционно связывает durable PostgreSQL queue, approved-only lesson processor, AI router/provider и persistence результата;
+- поддерживаются два режима: `WORKER_MODE=poll` для постоянной обработки очереди и `WORKER_MODE=once` для scheduler/message-driven запуска;
+- стабильная worker identity задаётся `WORKER_ID`, с безопасным host:pid fallback;
+- SIGTERM/SIGINT запускают graceful shutdown через AbortController;
+- runtime-level infrastructure failures получают bounded exponential backoff, а job-level lease recovery и ограниченные retries остаются в существующих application/database слоях;
+- структурированные JSON-логи содержат только operational metadata (job/proposal/status), без prompt, lesson content и секретов;
+- добавлены `GET /healthz` и PostgreSQL-backed `GET /readyz`; readiness становится 503 при shutdown или недоступной БД;
+- добавлены unit/integration-style runtime tests для one-shot, polling shutdown, backoff и health/readiness;
+- создан production Node 22 Docker image worker, запускающийся от `USER node`;
+- CI теперь собирает и проверяет non-root runtime как API, так и worker image;
+- root scripts дополнены `pnpm worker:dev` и `pnpm worker:once`, `.env.example` документирует worker/provider-neutral runtime config;
+- CI выявил две реальные проблемы: скрытую workspace-зависимость `database → identity` в worker image и преждевременное завершение node:test из-за unref polling timer; обе причины исправлены, не обходя проверки;
+- финальный CI полностью зелёный: typecheck, build, tests, db:smoke, API+worker Docker non-root и Terraform validation.
 
 ## [ ] 6. Production-ready AI provider adapters
 
