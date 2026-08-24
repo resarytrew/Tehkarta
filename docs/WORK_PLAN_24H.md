@@ -40,7 +40,7 @@
 
 ## [x] 1. Довести PR #12 до зелёного состояния
 
-**Результат:** worker core доведён до зелёного CI на commit `96e7b78776cc598f518374ee284c8d0072b0cefe`.
+**Результат:** worker core доведён до зелёного CI на commit `96e7b78776cc598f518374ee284c8d0072b0cefe` и влит в `main` merge-коммитом `f9f3196d3db644433f7741217bbca65795f3ce8c`.
 
 Выполнено:
 
@@ -50,7 +50,7 @@
 - Terraform `fmt/init/validate` проходит;
 - smoke проверяет `QUEUED → RUNNING → READY`, stale handling и сохранение approved teacher decision.
 
-**PR:** #12 `Build safe AI proposal worker core` — готов к merge после перевода из draft.
+**PR:** #12 `Build safe AI proposal worker core` — merged.
 
 ---
 
