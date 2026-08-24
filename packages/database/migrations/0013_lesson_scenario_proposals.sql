@@ -1,5 +1,12 @@
 BEGIN;
 
+ALTER TABLE lesson_invalidations
+  DROP CONSTRAINT lesson_invalidations_source_kind_check;
+
+ALTER TABLE lesson_invalidations
+  ADD CONSTRAINT lesson_invalidations_source_kind_check
+  CHECK (source_kind IN ('LESSON_DECISION', 'CONTENT_SELECTION', 'SCENARIO'));
+
 CREATE TABLE lesson_scenario_proposals (
   id text PRIMARY KEY,
   workspace_id text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
