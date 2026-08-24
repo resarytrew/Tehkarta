@@ -13,7 +13,8 @@ const context: RequestContext = {
   requestId: 'req-scenario-context',
   workspaceId: 'ws-1',
   actorUserId: 'teacher-1',
-  roles: ['OWNER']
+  roles: ['OWNER'],
+  permissions: ['course:read', 'lesson:read', 'lesson:write']
 };
 
 function field(
